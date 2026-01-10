@@ -1,12 +1,28 @@
-// Update this page (the content is just a fallback if you fail to update the page)
+import Navbar from "@/components/Navbar";
+import HeroSection from "@/components/HeroSection";
+import ProductsSection from "@/components/ProductsSection";
 
 const Index = () => {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background">
-      <div className="text-center">
-        <h1 className="mb-4 text-4xl font-bold">Welcome to Your Blank App</h1>
-        <p className="text-xl text-muted-foreground">Start building your amazing project here!</p>
-      </div>
+    <div className="min-h-screen bg-background">
+      <Navbar />
+      <HeroSection />
+      <ProductsSection />
+      
+      {/* Footer */}
+      <footer className="py-12 px-6 border-t border-border">
+        <div className="max-w-7xl mx-auto text-center">
+          <div className="flex items-center justify-center gap-2 mb-4">
+            <div className="w-10 h-10 hero-gradient rounded-lg flex items-center justify-center">
+              <span className="font-display text-xl text-primary-foreground">TS</span>
+            </div>
+            <span className="font-display text-2xl tracking-wider text-foreground">TSHIRTS</span>
+          </div>
+          <p className="text-muted-foreground text-sm">
+            © 2026 TShirts. Todos os direitos reservados.
+          </p>
+        </div>
+      </footer>
     </div>
   );
 };
