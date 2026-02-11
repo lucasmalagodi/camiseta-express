@@ -1,0 +1,30 @@
+[
+  {
+    "id": 1,
+    "nome": "Camiseta Branca Classic",
+    "descricao": "Camiseta premium em algodão 100% penteado, com acabamento impecável e toque macio. Perfeita para o dia a dia, oferece conforto e estilo atemporal.",
+    "imagem": "/src/assets/ala_dl_frente.png",
+    "preco": 100
+  },
+  {
+    "id": 2,
+    "nome": "Camiseta Azul Navy",
+    "descricao": "Camiseta em azul navy elegante, confeccionada em algodão de alta qualidade. Design moderno e versátil, perfeita para compor looks casuais ou mais elaborados.",
+    "imagem": "/src/assets/cp_frente.png",
+    "preco": 100
+  },
+  {
+    "id": 3,
+    "nome": "Camiseta Cinza Mescla",
+    "descricao": "Camiseta em cinza mescla com textura diferenciada. Tecido resistente e confortável, ideal para uso frequente. Estilo despojado que combina com qualquer ocasião.",
+    "imagem": "/src/assets/em_f.png",
+    "preco": 100
+  },
+  {
+    "id": 4,
+    "nome": "Camiseta Bordô Premium",
+    "descricao": "Camiseta em bordô sofisticado, com acabamento premium e tecido de alta gramatura. Perfeita para quem busca elegância e qualidade superior.",
+    "imagem": "/src/assets/r11_frente.png",
+    "preco": 100
+  }
+]

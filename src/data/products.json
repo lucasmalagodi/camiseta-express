@@ -1,0 +1,80 @@
+[
+  {
+    "id": 1,
+    "codigo": "CAM-001",
+    "nome": "Camiseta Branca Classic",
+    "descricao": "Camiseta premium em algodão 100% penteado, com acabamento impecável e toque macio. Perfeita para o dia a dia, oferece conforto e estilo atemporal. Ideal para personalização e uso corporativo.",
+    "modelo": "Classic Fit",
+    "valor": 200,
+    "valorPrimeiroLote": 100,
+    "imagens": [
+      "/src/assets/ac_frente.png",
+      "/src/assets/ac_costas.png"
+    ]
+  },
+  {
+    "id": 2,
+    "codigo": "CAM-002",
+    "nome": "Camiseta Azul Navy",
+    "descricao": "Camiseta em azul navy elegante, confeccionada em algodão de alta qualidade. Design moderno e versátil, perfeita para compor looks casuais ou mais elaborados. Durabilidade e conforto garantidos.",
+    "modelo": "Modern Fit",
+    "valor": 200,
+    "valorPrimeiroLote": 100,
+    "imagens": [
+      "/src/assets/cp_frente.png",
+      "/src/assets/cp_costa.png"
+    ]
+  },
+  {
+    "id": 3,
+    "codigo": "CAM-003",
+    "nome": "Camiseta Cinza Mescla",
+    "descricao": "Camiseta em cinza mescla com textura diferenciada. Tecido resistente e confortável, ideal para uso frequente. Estilo despojado que combina com qualquer ocasião.",
+    "modelo": "Relaxed Fit",
+    "valor": 200,
+    "valorPrimeiroLote": 100,
+    "imagens": [
+      "/src/assets/em_f.png",
+      "/src/assets/em_costa.png"
+    ]
+  },
+  {
+    "id": 4,
+    "codigo": "CAM-004",
+    "nome": "Camiseta Bordô Premium",
+    "descricao": "Camiseta em bordô sofisticado, com acabamento premium e tecido de alta gramatura. Perfeita para quem busca elegância e qualidade superior. Ideal para eventos e ocasiões especiais.",
+    "modelo": "Premium Fit",
+    "valor": 200,
+    "valorPrimeiroLote": 100,
+    "imagens": [
+      "/src/assets/r11_frente.png",
+      "/src/assets/r11_costa.png"
+    ]
+  },
+  {
+    "id": 5,
+    "codigo": "CAM-005",
+    "nome": "Camiseta Verde Militar",
+    "descricao": "Camiseta em verde militar com estilo urbano e moderno. Tecido resistente e confortável, perfeita para o dia a dia. Design que combina funcionalidade e estilo contemporâneo.",
+    "modelo": "Urban Fit",
+    "valor": 200,
+    "valorPrimeiroLote": 100,
+    "imagens": [
+      "/src/assets/ita_frente.png",
+      "/src/assets/ita_costa.png"
+    ]
+  },
+  {
+    "id": 6,
+    "codigo": "CAM-006",
+    "nome": "Camiseta Preta Essential",
+    "descricao": "Camiseta preta essencial, versátil e atemporal. Confeccionada em algodão de alta qualidade, oferece conforto e durabilidade. Peça fundamental para qualquer guarda-roupa.",
+    "modelo": "Essential Fit",
+    "valor": 200,
+    "valorPrimeiroLote": 100,
+    "imagens": [
+      "/src/assets/saa_frente.png",
+      "/src/assets/saa_costas.png"
+    ]
+  }
+]

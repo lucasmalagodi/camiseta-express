@@ -1,0 +1,23 @@
+[
+  {
+    "id": 1,
+    "name": "Ancoradouro",
+    "email": "contato@ancd.com.br",
+    "password": "123456",
+    "points": 1250
+  },
+  {
+    "id": 2,
+    "name": "Mondiale",
+    "email": "contato@mondiale.com.br",
+    "password": "123456",
+    "points": 3200
+  },
+  {
+    "id": 3,
+    "name": "Felipe Obata",
+    "email": "felipe.obata@ancoradouro.com.br",
+    "password": "123456",
+    "points": 850
+  }
+]

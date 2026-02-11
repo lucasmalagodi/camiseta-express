@@ -1,0 +1,129 @@
+.purchase-notification {
+  position: fixed;
+  bottom: 30px;
+  left: 30px;
+  background-color: #2a2a2a;
+  border-radius: 12px;
+  padding: 16px;
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  z-index: 1000;
+  min-width: 320px;
+  max-width: 400px;
+  animation: slideInUp 0.5s ease;
+}
+
+@keyframes slideInUp {
+  from {
+    transform: translateY(100px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.purchase-notification-image {
+  flex-shrink: 0;
+}
+
+.product-image-placeholder {
+  width: 60px;
+  height: 60px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, rgba(128, 179, 255, 0.2) 0%, rgba(90, 159, 255, 0.2) 100%);
+}
+
+.purchase-notification-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.purchase-product-name {
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.purchase-price {
+  color: #ffffff;
+  font-size: 18px;
+  font-weight: 700;
+  margin: 0;
+}
+
+.purchase-status {
+  color: #80B3FF;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-top: 2px;
+}
+
+.purchase-location {
+  color: #b0b0b0;
+  font-size: 11px;
+  margin: 0;
+  margin-top: 2px;
+}
+
+.purchase-notification-close {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  background-color: #1f1f1f;
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+  flex-shrink: 0;
+}
+
+.purchase-notification-close:hover {
+  background-color: #333333;
+}
+
+@media (max-width: 768px) {
+  .purchase-notification {
+    bottom: 20px;
+    left: 20px;
+    right: 20px;
+    min-width: auto;
+    max-width: none;
+    padding: 12px;
+    gap: 12px;
+  }
+
+  .product-image-placeholder {
+    width: 50px;
+    height: 50px;
+  }
+
+  .purchase-product-name {
+    font-size: 12px;
+  }
+
+  .purchase-price {
+    font-size: 16px;
+  }
+
+  .purchase-status {
+    font-size: 10px;
+  }
+
+  .purchase-location {
+    font-size: 10px;
+  }
+}
