@@ -141,5 +141,45 @@ exports.orderController = {
             console.error(error);
             res.status(500).json({ message: 'Internal server error' });
         }
+    },
+    // Endpoints para agências autenticadas (/me/orders)
+    async getMyOrders(req, res) {
+        try {
+            // req.agency é definido pelo middleware protectAgency
+            if (!req.agency || !req.agency.id) {
+                return res.status(401).json({ message: 'Não autorizado' });
+            }
+            const orders = await orderService_1.orderService.findMyOrders(req.agency.id);
+            res.json({ data: orders, total: orders.length });
+        }
+        catch (error) {
+            console.error('Error fetching my orders:', error);
+            res.status(500).json({ message: 'Internal server error' });
+        }
+    },
+    async getMyOrderById(req, res) {
+        try {
+            // req.agency é definido pelo middleware protectAgency
+            if (!req.agency || !req.agency.id) {
+                return res.status(401).json({ message: 'Não autorizado' });
+            }
+            const idParam = req.params.id;
+            if (!/^\d+$/.test(idParam)) {
+                return res.status(400).json({ message: 'Invalid ID' });
+            }
+            const id = parseInt(idParam);
+            if (isNaN(id)) {
+                return res.status(400).json({ message: 'Invalid ID' });
+            }
+            const order = await orderService_1.orderService.findMyOrderById(id, req.agency.id);
+            if (!order) {
+                return res.status(404).json({ message: 'Pedido não encontrado' });
+            }
+            res.json(order);
+        }
+        catch (error) {
+            console.error('Error fetching my order:', error);
+            res.status(500).json({ message: 'Internal server error' });
+        }
     }
 };

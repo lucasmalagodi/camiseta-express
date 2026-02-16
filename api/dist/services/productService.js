@@ -2,10 +2,16 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.productService = void 0;
 const db_1 = require("../config/db");
+const productVariantService_1 = require("./productVariantService");
 exports.productService = {
     async create(data) {
         const result = await (0, db_1.query)('INSERT INTO products (category_id, name, description, quantity, active, created_at, updated_at) VALUES (?, ?, ?, ?, true, NOW(), NOW())', [data.categoryId, data.name, data.description, data.quantity ?? 0]);
-        return result.insertId;
+        const productId = result.insertId;
+        // Criar variações se fornecidas
+        if (data.variants && data.variants.length > 0) {
+            await productVariantService_1.productVariantService.bulkCreate(productId, data.variants);
+        }
+        return productId;
     },
     async update(id, data) {
         const updates = [];
@@ -76,6 +82,10 @@ exports.productService = {
             console.error('Got:', updated.active);
         }
         console.log('Product update executed successfully');
+        // Atualizar variações se fornecidas
+        if ('variants' in data && data.variants !== undefined) {
+            await productVariantService_1.productVariantService.bulkUpdate(id, data.variants);
+        }
     },
     async softDelete(id) {
         await (0, db_1.query)('UPDATE products SET active = 0, updated_at = NOW() WHERE id = ?', [id]);
@@ -144,9 +154,13 @@ exports.productService = {
             // Buscar todos os preços
             const pricesSql = `SELECT id, product_id as productId, value, batch, quantidade_compra as quantidadeCompra, active, created_at as createdAt, updated_at as updatedAt FROM product_prices WHERE product_id IN (${placeholders}) AND active = true ORDER BY batch ASC`;
             const allPrices = await (0, db_1.query)(pricesSql, productIds);
-            // Agrupar imagens e preços por produto
+            // Buscar todas as variações
+            const variantsSql = `SELECT id, product_id as productId, model, size, stock, active, created_at as createdAt, updated_at as updatedAt FROM product_variants WHERE product_id IN (${placeholders}) AND active = true ORDER BY model ASC, size ASC`;
+            const allVariants = await (0, db_1.query)(variantsSql, productIds);
+            // Agrupar imagens, preços e variações por produto
             const imagesByProduct = {};
             const pricesByProduct = {};
+            const variantsByProduct = {};
             allImages.forEach((img) => {
                 if (!imagesByProduct[img.productId]) {
                     imagesByProduct[img.productId] = [];
@@ -158,6 +172,12 @@ exports.productService = {
                     pricesByProduct[price.productId] = [];
                 }
                 pricesByProduct[price.productId].push(price);
+            });
+            allVariants.forEach((variant) => {
+                if (!variantsByProduct[variant.productId]) {
+                    variantsByProduct[variant.productId] = [];
+                }
+                variantsByProduct[variant.productId].push(variant);
             });
             // Buscar contagem de compras por agência (se agencyId fornecido)
             let purchaseCountsByProduct = {};
@@ -177,10 +197,11 @@ exports.productService = {
                     purchaseCountsByProduct[row.productId] = Number(row.total) || 0;
                 });
             }
-            // Adicionar imagens e preços aos produtos
+            // Adicionar imagens, preços e variações aos produtos
             const productsWithDetails = data.map(product => {
                 const images = imagesByProduct[product.id] || [];
                 const prices = pricesByProduct[product.id] || [];
+                const variants = variantsByProduct[product.id] || [];
                 // Ordenar preços por batch
                 const sortedPrices = prices.sort((a, b) => a.batch - b.batch);
                 // Buscar quantidade de compras da agência
@@ -193,11 +214,16 @@ exports.productService = {
                     for (let i = 0; i < sortedPrices.length; i++) {
                         const lote = sortedPrices[i];
                         const quantidadeCompra = Number(lote.quantidadeCompra) || 0;
-                        // Se quantidade_compra for 0, fica liberado
+                        // Se quantidade_compra for 0, permite apenas 1 unidade por agência (qualquer lote)
                         if (quantidadeCompra === 0) {
-                            loteDisponivel = lote;
-                            podeComprar = true;
-                            break;
+                            // Se a agência ainda não comprou nenhuma unidade, pode comprar
+                            if (agencyPurchaseCount === 0) {
+                                loteDisponivel = lote;
+                                podeComprar = true;
+                                break;
+                            }
+                            // Se já comprou, não pode mais comprar neste lote com quantidadeCompra = 0
+                            continue;
                         }
                         // Se quantidade_compra > 0, verificar agencyPurchaseCount
                         if (agencyPurchaseCount >= quantidadeCompra) {
@@ -225,6 +251,7 @@ exports.productService = {
                     ...product,
                     images,
                     prices,
+                    variants,
                     primeiroLote: Number(primeiroLote?.value) || 0,
                     maiorPreco: Number(maiorPreco?.value) || 0,
                     agencyPurchaseCount: agencyId ? agencyPurchaseCount : undefined,
@@ -261,9 +288,13 @@ exports.productService = {
         // Buscar todos os preços
         const pricesSql = `SELECT id, product_id as productId, value, batch, quantidade_compra as quantidadeCompra, active, created_at as createdAt, updated_at as updatedAt FROM product_prices WHERE product_id = ? AND active = true ORDER BY batch ASC`;
         const allPrices = await (0, db_1.query)(pricesSql, [id]);
-        // Agrupar imagens e preços por produto
+        // Buscar todas as variações
+        const variantsSql = `SELECT id, product_id as productId, model, size, stock, active, created_at as createdAt, updated_at as updatedAt FROM product_variants WHERE product_id = ? AND active = true ORDER BY model ASC, size ASC`;
+        const allVariants = await (0, db_1.query)(variantsSql, [id]);
+        // Agrupar imagens, preços e variações por produto
         const imagesByProduct = {};
         const pricesByProduct = {};
+        const variantsByProduct = {};
         allImages.forEach((img) => {
             if (!imagesByProduct[img.productId]) {
                 imagesByProduct[img.productId] = [];
@@ -275,6 +306,12 @@ exports.productService = {
                 pricesByProduct[price.productId] = [];
             }
             pricesByProduct[price.productId].push(price);
+        });
+        allVariants.forEach((variant) => {
+            if (!variantsByProduct[variant.productId]) {
+                variantsByProduct[variant.productId] = [];
+            }
+            variantsByProduct[variant.productId].push(variant);
         });
         // Buscar contagem de compras por agência (se agencyId fornecido)
         let purchaseCountsByProduct = {};
@@ -294,10 +331,11 @@ exports.productService = {
                 purchaseCountsByProduct[row.productId] = Number(row.total) || 0;
             });
         }
-        // Adicionar imagens e preços aos produtos (mesma lógica do findAllWithDetails)
+        // Adicionar imagens, preços e variações aos produtos (mesma lógica do findAllWithDetails)
         const productsWithDetails = data.map(product => {
             const images = imagesByProduct[product.id] || [];
             const prices = pricesByProduct[product.id] || [];
+            const variants = variantsByProduct[product.id] || [];
             // Ordenar preços por batch
             const sortedPrices = prices.sort((a, b) => a.batch - b.batch);
             // Buscar quantidade de compras da agência
@@ -310,11 +348,16 @@ exports.productService = {
                 for (let i = 0; i < sortedPrices.length; i++) {
                     const lote = sortedPrices[i];
                     const quantidadeCompra = Number(lote.quantidadeCompra) || 0;
-                    // Se quantidade_compra for 0, fica liberado
+                    // Se quantidade_compra for 0, permite apenas 1 unidade por agência (qualquer lote)
                     if (quantidadeCompra === 0) {
-                        loteDisponivel = lote;
-                        podeComprar = true;
-                        break;
+                        // Se a agência ainda não comprou nenhuma unidade, pode comprar
+                        if (agencyPurchaseCount === 0) {
+                            loteDisponivel = lote;
+                            podeComprar = true;
+                            break;
+                        }
+                        // Se já comprou, não pode mais comprar neste lote com quantidadeCompra = 0
+                        continue;
                     }
                     // Se quantidade_compra > 0, verificar agencyPurchaseCount
                     if (agencyPurchaseCount >= quantidadeCompra) {
@@ -342,6 +385,7 @@ exports.productService = {
                 ...product,
                 images,
                 prices,
+                variants,
                 primeiroLote: Number(primeiroLote?.value) || 0,
                 maiorPreco: Number(maiorPreco?.value) || 0,
                 agencyPurchaseCount: agencyId ? agencyPurchaseCount : undefined,

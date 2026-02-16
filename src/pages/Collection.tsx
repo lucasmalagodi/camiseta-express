@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import ProductCard from "@/components/ProductCard";
-import logo from "@/assets/logo.svg";
+import Footer from "@/components/Footer";
 
 interface Product {
   id: number;
@@ -122,17 +122,7 @@ const Collection = () => {
         </div>
       </div>
 
-      {/* Footer */}
-      <footer className="py-12 px-6 border-t border-border mt-12">
-        <div className="max-w-7xl mx-auto text-center">
-          <div className="flex items-center justify-center mb-4">
-            <img src={logo} alt="Logo" className="h-10" />
-          </div>
-          <p className="text-muted-foreground text-sm">
-            © 2026 Travel Collection. Todos os direitos reservados.
-          </p>
-        </div>
-      </footer>
+      <Footer />
     </>
   );
 };

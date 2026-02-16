@@ -15,14 +15,15 @@ const requireAdmin = (req, res, next) => {
 router.use(authMiddleware_1.protect);
 router.use(requireAdmin);
 // Rotas de relatórios
+// IMPORTANTE: Rotas específicas devem vir ANTES de rotas com parâmetros
 router.post('/reports', reportController_1.reportController.create);
 router.get('/reports', reportController_1.reportController.getAll);
-router.get('/reports/fields', reportController_1.reportController.getAvailableFields);
+router.get('/reports/fields', reportController_1.reportController.getAvailableFields); // Específica antes de /:id
+router.post('/reports/preview', reportController_1.reportController.preview); // Específica antes de /:id
+router.post('/reports/:id/execute', reportController_1.reportController.execute); // Específica antes de /:id
 router.get('/reports/:id', reportController_1.reportController.getById);
 router.put('/reports/:id', reportController_1.reportController.update);
 router.delete('/reports/:id', reportController_1.reportController.delete);
-router.post('/reports/:id/execute', reportController_1.reportController.execute);
-router.post('/reports/preview', reportController_1.reportController.preview);
 // Rotas de widgets do dashboard
 router.post('/widgets', reportController_1.dashboardWidgetController.create);
 router.get('/widgets', reportController_1.dashboardWidgetController.getActive);

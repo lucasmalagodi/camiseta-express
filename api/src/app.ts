@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import hpp from 'hpp';
+import cookieParser from 'cookie-parser';
 import path from 'path';
 import fs from 'fs';
 import { adaptiveRateLimit } from './middlewares/rateLimitMiddleware';
@@ -19,7 +20,40 @@ app.use(helmet({
     crossOriginEmbedderPolicy: false
 }));
 app.use(cors({
-    origin: '*', // TODO: Restringir para o domínio do frontend em produção
+    origin: function (origin, callback) {
+        // Permitir requisições sem origin (mobile apps, Postman, etc)
+        if (!origin) return callback(null, true);
+        
+        // Lista de origens permitidas
+        const allowedOrigins = [
+            'http://localhost:5173',
+            'http://localhost:3000',
+            'http://localhost:5174',
+            'http://127.0.0.1:5173',
+            'http://127.0.0.1:3000',
+            process.env.FRONTEND_URL
+        ].filter(Boolean);
+        
+        // Em desenvolvimento, permitir qualquer localhost
+        if (process.env.NODE_ENV !== 'production') {
+            if (origin.includes('localhost') || origin.includes('127.0.0.1')) {
+                return callback(null, true);
+            }
+        }
+        
+        // Verificar se a origem está na lista permitida
+        if (allowedOrigins.includes(origin)) {
+            callback(null, true);
+        } else {
+            // Em produção, rejeitar origens não permitidas
+            if (process.env.NODE_ENV === 'production') {
+                callback(new Error('Not allowed by CORS'));
+            } else {
+                // Em desenvolvimento, permitir qualquer origem
+                callback(null, true);
+            }
+        }
+    },
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
     credentials: true
@@ -29,6 +63,9 @@ app.use(hpp());
 // Rate Limiting adaptativo - admins têm limites muito mais altos
 // Aplicar rate limiting adaptativo para todas as rotas da API
 app.use('/api', adaptiveRateLimit);
+
+// Cookie Parser - necessário para ler cookies HttpOnly
+app.use(cookieParser());
 
 // Body Parser
 // IMPORTANTE: Limite maior para uploads de arquivos (planilhas podem ser maiores)
@@ -77,6 +114,9 @@ import userRoutes from './routes/userRoutes';
 import ticketRoutes from './routes/ticketRoutes';
 import dashboardRoutes from './routes/dashboardRoutes';
 import reportRoutes from './routes/reportRoutes';
+import branchRoutes from './routes/branchRoutes';
+import executiveNotificationEmailRoutes from './routes/executiveNotificationEmailRoutes';
+import legalDocumentRoutes from './routes/legalDocumentRoutes';
 
 // Routes
 // IMPORTANTE: Rotas mais específicas devem vir ANTES das rotas mais genéricas
@@ -91,10 +131,13 @@ app.use('/api/orders', orderRoutes);
 app.use('/api/utils', utilsRoutes);
 app.use('/api/hero-products', heroProductRoutes);
 app.use('/api/tickets', ticketRoutes);
+app.use('/api/legal-documents', legalDocumentRoutes);
 
 // Rotas admin - específicas primeiro, depois genéricas
 app.use('/api/admin/order-notification-emails', orderNotificationEmailRoutes);
 app.use('/api/admin/executives', executiveRoutes);
+app.use('/api/admin/executive-notification-emails', executiveNotificationEmailRoutes);
+app.use('/api/admin/branches', branchRoutes);
 app.use('/api/admin/users', userRoutes);
 app.use('/api/admin/dashboard', dashboardRoutes);
 app.use('/api/admin/reports', reportRoutes);

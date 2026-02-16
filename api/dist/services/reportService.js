@@ -7,6 +7,7 @@ exports.createReport = createReport;
 exports.updateReport = updateReport;
 exports.getReportById = getReportById;
 exports.getAllReports = getAllReports;
+exports.getAvailableReportsForUser = getAvailableReportsForUser;
 exports.deleteReport = deleteReport;
 exports.createDashboardWidget = createDashboardWidget;
 exports.getDashboardWidgetById = getDashboardWidgetById;
@@ -92,6 +93,33 @@ const TABLE_RELATIONSHIPS = {
         on: 'products.id = order_items.product_id',
         type: 'LEFT'
     },
+    // Relações quando agencies é a tabela principal
+    'agencies.imports': {
+        table: 'agency_points_import_items',
+        alias: 'imports',
+        on: 'imports.cnpj = agencies.cnpj',
+        type: 'LEFT'
+    },
+    'agencies.orders': {
+        table: 'orders',
+        alias: 'orders',
+        on: 'orders.agency_id = agencies.id',
+        type: 'LEFT'
+    },
+    'agencies.order_items': {
+        table: 'order_items',
+        alias: 'order_items',
+        on: 'order_items.order_id = orders.id',
+        type: 'LEFT',
+        requires: 'agencies.orders' // Requer que orders seja feito JOIN primeiro
+    },
+    'agencies.products': {
+        table: 'products',
+        alias: 'products',
+        on: 'products.id = order_items.product_id',
+        type: 'LEFT',
+        requires: 'agencies.order_items' // Requer que order_items seja feito JOIN primeiro
+    },
 };
 // Campos permitidos de tabelas relacionadas (para filtros)
 const RELATED_TABLE_FIELDS = {
@@ -108,6 +136,11 @@ const RELATED_TABLE_FIELDS = {
     'products': [
         'id', 'category_id', 'name', 'description', 'quantity', 'active',
         'created_at', 'updated_at'
+    ],
+    'imports': [
+        'id', 'import_id', 'sale_id', 'sale_date', 'cnpj', 'agency_name',
+        'branch', 'store', 'executive_name', 'supplier', 'product_name',
+        'company', 'points'
     ],
 };
 /**
@@ -161,9 +194,9 @@ function isRelatedFieldAllowed(relatedTable, field) {
     return allowed.includes(field);
 }
 /**
- * Obtém os JOINs necessários baseado nos filtros e dimensões
+ * Obtém os JOINs necessários baseado nos filtros, dimensões e métricas
  */
-function getRequiredJoins(table, filters, dimensions) {
+function getRequiredJoins(table, filters, dimensions, metrics) {
     const joins = [];
     const addedJoins = new Set();
     // Função auxiliar para adicionar JOIN e suas dependências
@@ -205,6 +238,23 @@ function getRequiredJoins(table, filters, dimensions) {
     if (dimensions) {
         for (const dim of dimensions) {
             const parts = dim.field.split('.');
+            if (parts.length === 2) {
+                const [relationshipKey, field] = parts;
+                const joinKey = `${table}.${relationshipKey}`;
+                const relationship = TABLE_RELATIONSHIPS[joinKey];
+                if (relationship) {
+                    // Validar usando o alias da tabela relacionada
+                    if (isRelatedFieldAllowed(relationship.alias, field)) {
+                        addJoinWithDependencies(joinKey);
+                    }
+                }
+            }
+        }
+    }
+    // Verificar métricas que referenciam tabelas relacionadas
+    if (metrics) {
+        for (const metric of metrics) {
+            const parts = metric.field.split('.');
             if (parts.length === 2) {
                 const [relationshipKey, field] = parts;
                 const joinKey = `${table}.${relationshipKey}`;
@@ -406,33 +456,71 @@ function buildSelectClause(table, dimensions, metrics) {
     // Adicionar métricas
     if (metrics && metrics.length > 0) {
         for (const metric of metrics) {
-            if (!isFieldAllowed(table, metric.field)) {
-                throw new Error(`Campo não permitido: ${metric.field}`);
+            let fieldSql;
+            let isNumeric;
+            // Verificar se é campo de tabela relacionada (formato: "relationship_key.field")
+            const parts = metric.field.split('.');
+            if (parts.length === 2) {
+                const [relationshipKey, field] = parts;
+                // Obter o alias da tabela relacionada
+                const relatedTableAlias = getRelatedTableAlias(table, relationshipKey);
+                if (!relatedTableAlias) {
+                    throw new Error(`Relacionamento não encontrado: ${relationshipKey}`);
+                }
+                // Validar campo da tabela relacionada usando o alias
+                if (!isRelatedFieldAllowed(relatedTableAlias, field)) {
+                    throw new Error(`Campo não permitido na tabela relacionada: ${relatedTableAlias}.${field}`);
+                }
+                // Verificar se é numérico (para tabelas relacionadas)
+                // Campos numéricos conhecidos para tabelas relacionadas
+                const numericFields = {
+                    'imports': ['points'],
+                    'orders': ['total_points'],
+                    'order_items': ['quantity', 'points_per_unit'],
+                };
+                isNumeric = numericFields[relatedTableAlias]?.includes(field) || false;
+                // Usar o alias da tabela no SQL
+                fieldSql = escapeIdentifier(relatedTableAlias) + '.' + escapeIdentifier(field);
+            }
+            else {
+                // Campo da tabela principal
+                if (!isFieldAllowed(table, metric.field)) {
+                    throw new Error(`Campo não permitido: ${metric.field}`);
+                }
+                isNumeric = isNumericField(table, metric.field);
+                fieldSql = escapeIdentifier(table) + '.' + escapeIdentifier(metric.field);
             }
             let metricSql = '';
             if (metric.operation === 'SUM') {
-                if (!isNumericField(table, metric.field)) {
+                if (!isNumeric) {
                     throw new Error(`Campo ${metric.field} não pode ser usado em SUM`);
                 }
-                metricSql = `SUM(${escapeIdentifier(table)}.${escapeIdentifier(metric.field)})`;
+                metricSql = `SUM(${fieldSql})`;
             }
             else if (metric.operation === 'COUNT') {
-                metricSql = `COUNT(${escapeIdentifier(table)}.${escapeIdentifier(metric.field)})`;
+                metricSql = `COUNT(${fieldSql})`;
             }
             else {
                 throw new Error(`Operação não permitida: ${metric.operation}`);
             }
-            const alias = metric.alias ? ` AS ${escapeIdentifier(metric.alias)}` : '';
+            // Se não há alias definido, gerar um nome padrão mais amigável
+            let aliasName = metric.alias;
+            if (!aliasName || aliasName.trim() === '') {
+                const parts = metric.field.split('.');
+                const fieldName = parts.length > 1 ? parts[1] : metric.field;
+                aliasName = metric.operation === 'SUM'
+                    ? `total_${fieldName}`
+                    : `contagem_${fieldName}`;
+            }
+            const alias = ` AS ${escapeIdentifier(aliasName)}`;
             selects.push(`${metricSql}${alias}`);
         }
     }
-    else {
-        // Se não há métricas, selecionar todos os campos das dimensões ou usar COUNT(*)
-        if (!dimensions || dimensions.length === 0) {
-            selects.push('COUNT(*) AS total');
-        }
+    // Se não há métricas nem dimensões, retornar erro (deve ter pelo menos um)
+    if (selects.length === 0) {
+        throw new Error('O relatório deve ter pelo menos uma métrica ou uma dimensão (coluna) para exibir dados.');
     }
-    return selects.length > 0 ? selects.join(', ') : '*';
+    return selects.join(', ');
 }
 /**
  * Valida e constrói a cláusula ORDER BY
@@ -445,9 +533,6 @@ function buildOrderByClause(table, sort, dimensions, metrics, hasGroupBy, getCol
     }
     const orders = [];
     for (const s of sort) {
-        if (!isFieldAllowed(table, s.field)) {
-            throw new Error(`Campo não permitido: ${s.field}`);
-        }
         const direction = s.direction === 'DESC' ? 'DESC' : 'ASC';
         // Se há GROUP BY, só pode ordenar por dimensões ou métricas
         if (hasGroupBy) {
@@ -468,8 +553,8 @@ function buildOrderByClause(table, sort, dimensions, metrics, hasGroupBy, getCol
                 }
                 continue;
             }
-            // Verificar se o campo está nas métricas
-            const metric = metrics?.find(m => m.field === s.field);
+            // Verificar se o campo está nas métricas (pode ser o campo ou o alias)
+            const metric = metrics?.find(m => m.field === s.field || (m.alias && m.alias === s.field));
             if (metric) {
                 // Quando há GROUP BY, usar alias se existir, senão usar posição numérica
                 if (metric.alias) {
@@ -486,11 +571,16 @@ function buildOrderByClause(table, sort, dimensions, metrics, hasGroupBy, getCol
                 continue;
             }
             // Se não está nas dimensões nem nas métricas, não pode ordenar
+            const dimensionFields = dimensions?.map(d => d.field).join(', ') || 'nenhuma';
+            const metricFields = metrics?.map(m => m.alias || m.field).join(', ') || 'nenhuma';
             throw new Error(`Campo '${s.field}' não pode ser usado em ORDER BY quando há GROUP BY. ` +
-                `Use apenas campos das dimensões ou métricas configuradas.`);
+                `Use apenas dimensões selecionadas (${dimensionFields}) ou métricas (${metricFields}).`);
         }
         else {
-            // Sem GROUP BY, pode ordenar por qualquer campo permitido
+            // Sem GROUP BY, validar se o campo é permitido
+            if (!isFieldAllowed(table, s.field)) {
+                throw new Error(`Campo não permitido na ordenação: ${s.field}`);
+            }
             orders.push(`${escapeIdentifier(table)}.${escapeIdentifier(s.field)} ${direction}`);
         }
     }
@@ -502,7 +592,7 @@ function buildOrderByClause(table, sort, dimensions, metrics, hasGroupBy, getCol
 function buildQuery(table, config) {
     const mainTable = escapeIdentifier(table);
     // Obter JOINs necessários
-    const requiredJoins = getRequiredJoins(table, config.filters, config.dimensions);
+    const requiredJoins = getRequiredJoins(table, config.filters, config.dimensions, config.metrics);
     // Construir SELECT e obter informações sobre as colunas para ORDER BY
     const selectClause = buildSelectClause(table, config.dimensions, config.metrics);
     // Construir FROM com JOINs
@@ -529,10 +619,10 @@ function buildQuery(table, config) {
                 position++;
             }
         }
-        // Contar métricas
+        // Contar métricas (verificar tanto pelo campo quanto pelo alias)
         if (config.metrics) {
             for (const metric of config.metrics) {
-                if (metric.field === field) {
+                if (metric.field === field || (metric.alias && metric.alias === field)) {
                     return position;
                 }
                 position++;
@@ -591,15 +681,20 @@ async function createReport(dto, userId) {
         throw new Error(`Erro de validação: ${validationError.message}`);
     }
     try {
-        const result = await (0, db_1.query)(`INSERT INTO reports (name, source_table, visualization_type, config_json, created_by)
-             VALUES (?, ?, ?, ?, ?)`, [
+        const result = await (0, db_1.query)(`INSERT INTO reports (name, source_table, visualization_type, config_json, created_by, is_public)
+             VALUES (?, ?, ?, ?, ?, ?)`, [
             dto.name,
             dto.sourceTable,
             dto.visualizationType,
             JSON.stringify(dto.config),
             userId,
+            dto.isPublic ? 1 : 0,
         ]);
-        return getReportById(result.insertId);
+        const createdReport = await getReportById(result.insertId);
+        if (!createdReport) {
+            throw new Error('Erro ao recuperar relatório recém-criado');
+        }
+        return createdReport;
     }
     catch (dbError) {
         console.error('Database error creating report:', dbError);
@@ -635,17 +730,35 @@ async function updateReport(id, dto) {
         updates.push('config_json = ?');
         params.push(JSON.stringify(dto.config));
     }
+    if (dto.isPublic !== undefined) {
+        updates.push('is_public = ?');
+        params.push(dto.isPublic ? 1 : 0);
+    }
     if (updates.length === 0) {
         return existing;
     }
     params.push(id);
     await (0, db_1.query)(`UPDATE reports SET ${updates.join(', ')} WHERE id = ?`, params);
-    return getReportById(id);
+    const updatedReport = await getReportById(id);
+    if (!updatedReport) {
+        throw new Error('Erro ao recuperar relatório após atualização');
+    }
+    return updatedReport;
 }
 /**
- * Valida uma configuração de relatório
+ * Valida uma configuração de relatório com regras rigorosas
  */
 function validateReportConfig(table, config) {
+    // REGRA 1: Se não tem métrica, deve ter pelo menos uma dimensão para listar dados
+    const hasMetrics = config.metrics && config.metrics.length > 0;
+    const hasDimensions = config.dimensions && config.dimensions.length > 0;
+    if (!hasMetrics && !hasDimensions) {
+        throw new Error('O relatório deve ter pelo menos uma métrica (soma ou contagem) ou pelo menos uma coluna (dimensão) para exibir dados.');
+    }
+    // REGRA 2: Métricas agregadas requerem agrupamento (dimensions)
+    if (hasMetrics && !hasDimensions) {
+        throw new Error('Métricas agregadas (SUM/COUNT) requerem pelo menos uma dimensão para agrupamento. Selecione uma ou mais colunas para agrupar os dados.');
+    }
     // Validar dimensões
     if (config.dimensions) {
         for (const dim of config.dimensions) {
@@ -679,10 +792,10 @@ function validateReportConfig(table, config) {
                 throw new Error(`Campo não permitido na métrica: ${metric.field}`);
             }
             if (metric.operation === 'SUM' && !isNumericField(table, metric.field)) {
-                throw new Error(`Campo ${metric.field} não pode ser usado em SUM`);
+                throw new Error(`Campo ${metric.field} não pode ser usado em SUM. Apenas campos numéricos podem ser somados.`);
             }
             if (metric.operation !== 'SUM' && metric.operation !== 'COUNT') {
-                throw new Error(`Operação não permitida: ${metric.operation}`);
+                throw new Error(`Operação não permitida: ${metric.operation}. Use apenas SUM ou COUNT.`);
             }
         }
     }
@@ -718,28 +831,61 @@ function validateReportConfig(table, config) {
             }
         }
     }
-    // Validar ordenação
+    // REGRA 3: Validar ordenação - só pode ordenar por métricas ou dimensões selecionadas
     if (config.sort) {
+        const availableFieldsForSort = [];
+        // Adicionar dimensões disponíveis
+        if (config.dimensions) {
+            config.dimensions.forEach(dim => {
+                availableFieldsForSort.push(dim.field);
+            });
+        }
+        // Adicionar métricas disponíveis (usando alias se existir, senão o campo)
+        if (config.metrics) {
+            config.metrics.forEach(metric => {
+                // Para métricas agregadas, usar o alias ou o campo
+                availableFieldsForSort.push(metric.alias || metric.field);
+            });
+        }
         for (const s of config.sort) {
-            // Verificar se é campo de tabela relacionada
+            // Verificar se o campo de ordenação está nas dimensões ou métricas selecionadas
+            const isValidSortField = availableFieldsForSort.includes(s.field) ||
+                config.dimensions?.some(d => d.field === s.field) ||
+                config.metrics?.some(m => (m.alias || m.field) === s.field);
+            if (!isValidSortField) {
+                const dimensionFields = config.dimensions?.map(d => d.field).join(', ') || 'nenhuma';
+                const metricFields = config.metrics?.map(m => m.alias || m.field).join(', ') || 'nenhuma';
+                throw new Error(`Campo de ordenação inválido: "${s.field}". ` +
+                    `Você só pode ordenar por dimensões selecionadas (${dimensionFields}) ou métricas (${metricFields}).`);
+            }
+            // Validar se o campo existe na tabela (validação de segurança)
             const parts = s.field.split('.');
             if (parts.length === 2) {
                 const [relationshipKey, field] = parts;
-                // Obter o alias da tabela relacionada
                 const relatedTableAlias = getRelatedTableAlias(table, relationshipKey);
                 if (!relatedTableAlias) {
                     throw new Error(`Relacionamento não encontrado na ordenação: ${relationshipKey}`);
                 }
-                // Validar usando o alias da tabela relacionada
                 if (!isRelatedFieldAllowed(relatedTableAlias, field)) {
                     throw new Error(`Campo não permitido na ordenação: ${relatedTableAlias}.${field}`);
                 }
             }
             else {
-                // Campo da tabela principal
-                if (!isFieldAllowed(table, s.field)) {
-                    throw new Error(`Campo não permitido na ordenação: ${s.field}`);
+                // Campo da tabela principal - verificar se está nas dimensões ou métricas
+                const isDimension = config.dimensions?.some(d => d.field === s.field);
+                const isMetric = config.metrics?.some(m => m.field === s.field);
+                if (!isDimension && !isMetric) {
+                    if (!isFieldAllowed(table, s.field)) {
+                        throw new Error(`Campo não permitido na ordenação: ${s.field}`);
+                    }
                 }
+            }
+        }
+        // REGRA 4: Limite requerido quando ordenando por métrica agregada
+        if (config.sort.length > 0 && config.metrics && config.metrics.length > 0) {
+            const sortingByMetric = config.sort.some(s => config.metrics?.some(m => (m.alias || m.field) === s.field));
+            if (sortingByMetric && (!config.limit || config.limit <= 0)) {
+                throw new Error('Quando ordenar por uma métrica agregada, você deve definir um limite de resultados (ex: 10, 50, 100).');
             }
         }
     }
@@ -786,6 +932,7 @@ async function getReportById(id) {
         visualizationType: row.visualization_type,
         configJson: parseConfigJson(row.config_json),
         createdBy: row.created_by,
+        isPublic: Boolean(row.is_public),
         createdAt: row.created_at,
         updatedAt: row.updated_at,
     };
@@ -802,6 +949,26 @@ async function getAllReports() {
         visualizationType: row.visualization_type,
         configJson: parseConfigJson(row.config_json),
         createdBy: row.created_by,
+        isPublic: Boolean(row.is_public),
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+    }));
+}
+/**
+ * Lista relatórios disponíveis para um usuário (públicos ou do próprio usuário)
+ */
+async function getAvailableReportsForUser(userId) {
+    const results = await (0, db_1.query)(`SELECT * FROM reports 
+         WHERE is_public = TRUE OR created_by = ?
+         ORDER BY created_at DESC`, [userId]);
+    return results.map(row => ({
+        id: row.id,
+        name: row.name,
+        sourceTable: row.source_table,
+        visualizationType: row.visualization_type,
+        configJson: parseConfigJson(row.config_json),
+        createdBy: row.created_by,
+        isPublic: Boolean(row.is_public),
         createdAt: row.created_at,
         updatedAt: row.updated_at,
     }));
@@ -830,27 +997,55 @@ async function deleteReport(id) {
 /**
  * Cria um widget no dashboard
  */
-async function createDashboardWidget(dto) {
+async function createDashboardWidget(dto, userId) {
     // Verificar se o relatório existe
     const report = await getReportById(dto.reportId);
     if (!report) {
         throw new Error('Relatório não encontrado');
     }
-    // Se não especificou posição, usar a próxima disponível
+    // Verificar se o relatório é público ou pertence ao usuário
+    if (!report.isPublic && report.createdBy !== userId) {
+        throw new Error('Você não tem permissão para adicionar este relatório ao dashboard');
+    }
+    // Se não especificou posição, usar a próxima disponível para este usuário
     let position = dto.position;
     if (position === undefined) {
-        const maxPos = await (0, db_1.query)(`SELECT COALESCE(MAX(position), -1) + 1 AS next_position FROM dashboard_widgets`);
+        const maxPos = await (0, db_1.query)(`SELECT COALESCE(MAX(position), -1) + 1 AS next_position 
+             FROM dashboard_widgets 
+             WHERE user_id = ?`, [userId]);
         position = maxPos[0]?.next_position || 0;
     }
-    const result = await (0, db_1.query)(`INSERT INTO dashboard_widgets (report_id, position, active)
-         VALUES (?, ?, TRUE)`, [dto.reportId, position]);
-    return getDashboardWidgetById(result.insertId);
+    const expanded = dto.expanded !== undefined ? dto.expanded : 0;
+    const result = await (0, db_1.query)(`INSERT INTO dashboard_widgets (user_id, report_id, position, expanded, active)
+         VALUES (?, ?, ?, ?, TRUE)`, [userId, dto.reportId, position, expanded]);
+    const createdWidget = await getDashboardWidgetById(result.insertId);
+    if (!createdWidget) {
+        throw new Error('Erro ao recuperar widget recém-criado');
+    }
+    return createdWidget;
 }
 /**
  * Busca um widget por ID
  */
 async function getDashboardWidgetById(id) {
-    const results = await (0, db_1.query)(`SELECT w.*, r.*
+    const results = await (0, db_1.query)(`SELECT 
+            w.id AS widget_id,
+            w.user_id,
+            w.report_id,
+            w.position,
+            w.expanded,
+            w.active,
+            w.created_at AS widget_created_at,
+            w.updated_at AS widget_updated_at,
+            r.id AS report_id,
+            r.name AS report_name,
+            r.source_table,
+            r.visualization_type,
+            r.config_json,
+            r.created_by,
+            r.is_public,
+            r.created_at AS report_created_at,
+            r.updated_at AS report_updated_at
          FROM dashboard_widgets w
          INNER JOIN reports r ON w.report_id = r.id
          WHERE w.id = ?`, [id]);
@@ -859,87 +1054,130 @@ async function getDashboardWidgetById(id) {
     }
     const row = results[0];
     return {
-        id: row.id,
+        id: row.widget_id,
+        userId: row.user_id,
         reportId: row.report_id,
         position: row.position,
+        expanded: row.expanded !== null && row.expanded !== undefined ? row.expanded : 0,
         active: Boolean(row.active),
-        createdAt: row.created_at,
-        updatedAt: row.updated_at,
+        createdAt: row.widget_created_at,
+        updatedAt: row.widget_updated_at,
         report: {
             id: row.report_id,
-            name: row.name,
+            name: row.report_name,
             sourceTable: row.source_table,
             visualizationType: row.visualization_type,
             configJson: parseConfigJson(row.config_json),
             createdBy: row.created_by,
-            createdAt: row.created_at,
-            updatedAt: row.updated_at,
+            isPublic: Boolean(row.is_public),
+            createdAt: row.report_created_at,
+            updatedAt: row.report_updated_at,
         },
     };
 }
 /**
- * Lista todos os widgets ativos do dashboard
+ * Lista todos os widgets ativos do dashboard de um usuário
  */
-async function getActiveDashboardWidgets() {
-    const results = await (0, db_1.query)(`SELECT w.*, r.*
+async function getActiveDashboardWidgets(userId) {
+    const results = await (0, db_1.query)(`SELECT 
+            w.id AS widget_id,
+            w.user_id,
+            w.report_id,
+            w.position,
+            w.expanded,
+            w.active,
+            w.created_at AS widget_created_at,
+            w.updated_at AS widget_updated_at,
+            r.id AS report_id,
+            r.name AS report_name,
+            r.source_table,
+            r.visualization_type,
+            r.config_json,
+            r.created_by,
+            r.is_public,
+            r.created_at AS report_created_at,
+            r.updated_at AS report_updated_at
          FROM dashboard_widgets w
          INNER JOIN reports r ON w.report_id = r.id
-         WHERE w.active = TRUE
-         ORDER BY w.position ASC`);
+         WHERE w.active = TRUE AND w.user_id = ?
+         ORDER BY w.position ASC`, [userId]);
     return results.map(row => ({
-        id: row.id,
+        id: row.widget_id,
+        userId: row.user_id,
         reportId: row.report_id,
         position: row.position,
+        expanded: row.expanded !== null && row.expanded !== undefined ? row.expanded : 0,
         active: Boolean(row.active),
-        createdAt: row.created_at,
-        updatedAt: row.updated_at,
+        createdAt: row.widget_created_at,
+        updatedAt: row.widget_updated_at,
         report: {
             id: row.report_id,
-            name: row.name,
+            name: row.report_name,
             sourceTable: row.source_table,
             visualizationType: row.visualization_type,
             configJson: parseConfigJson(row.config_json),
             createdBy: row.created_by,
-            createdAt: row.created_at,
-            updatedAt: row.updated_at,
+            isPublic: Boolean(row.is_public),
+            createdAt: row.report_created_at,
+            updatedAt: row.report_updated_at,
         },
     }));
 }
 /**
  * Atualiza um widget
  */
-async function updateDashboardWidget(id, dto) {
+async function updateDashboardWidget(id, dto, userId) {
+    // Verificar se o widget existe e pertence ao usuário
+    const existingWidget = await getDashboardWidgetById(id);
+    if (!existingWidget) {
+        throw new Error('Widget não encontrado');
+    }
+    if (existingWidget.userId !== userId) {
+        throw new Error('Você não tem permissão para atualizar este widget');
+    }
     const updates = [];
     const params = [];
     if (dto.position !== undefined) {
         updates.push('position = ?');
         params.push(dto.position);
     }
+    if (dto.expanded !== undefined) {
+        updates.push('expanded = ?');
+        params.push(dto.expanded);
+    }
     if (dto.active !== undefined) {
         updates.push('active = ?');
         params.push(dto.active ? 1 : 0);
     }
     if (updates.length === 0) {
-        return getDashboardWidgetById(id);
+        return existingWidget;
     }
-    params.push(id);
-    await (0, db_1.query)(`UPDATE dashboard_widgets SET ${updates.join(', ')} WHERE id = ?`, params);
-    return getDashboardWidgetById(id);
+    params.push(id, userId);
+    await (0, db_1.query)(`UPDATE dashboard_widgets SET ${updates.join(', ')} WHERE id = ? AND user_id = ?`, params);
+    const updatedWidget = await getDashboardWidgetById(id);
+    if (!updatedWidget) {
+        throw new Error('Erro ao recuperar widget após atualização');
+    }
+    return updatedWidget;
 }
 /**
  * Deleta um widget
  */
-async function deleteDashboardWidget(id) {
-    // Verificar se o widget existe antes de deletar
+async function deleteDashboardWidget(id, userId) {
+    // Verificar se o widget existe e pertence ao usuário antes de deletar
     const widget = await getDashboardWidgetById(id);
     if (!widget) {
         throw new Error('Widget não encontrado');
     }
-    console.log(`[deleteDashboardWidget] Deletando widget ID: ${id}, Report ID: ${widget.reportId}`);
+    // Verificar se o widget pertence ao usuário
+    if (widget.userId !== userId) {
+        throw new Error('Você não tem permissão para deletar este widget');
+    }
+    console.log(`[deleteDashboardWidget] Deletando widget ID: ${id}, Report ID: ${widget.reportId}, User ID: ${userId}`);
     // Usar pool.execute diretamente para obter o ResultSetHeader correto
     const connection = await db_1.pool.getConnection();
     try {
-        const [result] = await connection.execute(`DELETE FROM dashboard_widgets WHERE id = ?`, [id]);
+        const [result] = await connection.execute(`DELETE FROM dashboard_widgets WHERE id = ? AND user_id = ?`, [id, userId]);
         console.log(`[deleteDashboardWidget] Resultado completo:`, result);
         console.log(`[deleteDashboardWidget] Tipo do resultado:`, typeof result);
         console.log(`[deleteDashboardWidget] Constructor:`, result?.constructor?.name);
@@ -948,7 +1186,7 @@ async function deleteDashboardWidget(id) {
         const affectedRows = result?.affectedRows || 0;
         if (affectedRows === 0) {
             // Verificar se o widget ainda existe (pode ser que tenha sido deletado por outra operação)
-            const [verifyResult] = await connection.execute(`SELECT id FROM dashboard_widgets WHERE id = ?`, [id]);
+            const [verifyResult] = await connection.execute(`SELECT id FROM dashboard_widgets WHERE id = ? AND user_id = ?`, [id, userId]);
             if (Array.isArray(verifyResult) && verifyResult.length > 0) {
                 throw new Error('Falha ao deletar widget. O widget ainda existe no banco de dados.');
             }
@@ -958,7 +1196,7 @@ async function deleteDashboardWidget(id) {
             }
         }
         // Verificar se realmente foi deletado
-        const [verifyDeleted] = await connection.execute(`SELECT id FROM dashboard_widgets WHERE id = ?`, [id]);
+        const [verifyDeleted] = await connection.execute(`SELECT id FROM dashboard_widgets WHERE id = ? AND user_id = ?`, [id, userId]);
         if (Array.isArray(verifyDeleted) && verifyDeleted.length > 0) {
             throw new Error('Widget não foi deletado. Ainda existe no banco de dados.');
         }
@@ -997,6 +1235,7 @@ exports.reportService = {
     updateReport,
     getReportById,
     getAllReports,
+    getAvailableReportsForUser,
     deleteReport,
     executeReport,
     executeReportConfig,

@@ -1,23 +1,45 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
-import { LogIn, UserPlus, ArrowLeft, CheckCircle2, XCircle } from "lucide-react";
+import { LogIn, UserPlus, ArrowLeft, CheckCircle2, XCircle, Loader2, FileText, Eye } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
-import { agencyRegistrationService } from "@/services/api";
+import { agencyRegistrationService, legalDocumentService, agencyLegalDocumentService } from "@/services/api";
 import logo from "@/assets/logo.svg";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Tabs as DocumentTabs, TabsContent as DocumentTabsContent, TabsList as DocumentTabsList, TabsTrigger as DocumentTabsTrigger } from "@/components/ui/tabs";
 
 const Login = () => {
   const navigate = useNavigate();
-  const { login } = useAuth();
+  const { login, verifyCode } = useAuth();
   const [activeTab, setActiveTab] = useState("login");
-  const [loginData, setLoginData] = useState({
-    email: "",
-    password: "",
+  
+  // Carregar email salvo do localStorage ao inicializar
+  const [loginData, setLoginData] = useState(() => {
+    const savedEmail = localStorage.getItem("rememberedEmail");
+    return {
+      email: savedEmail || "",
+      password: "",
+    };
   });
+  
+  const [rememberMe, setRememberMe] = useState(() => {
+    return !!localStorage.getItem("rememberedEmail");
+  });
+  
+  const [requiresVerification, setRequiresVerification] = useState(false);
+  const [verificationCode, setVerificationCode] = useState("");
+  const [isVerifying, setIsVerifying] = useState(false);
   const [registerData, setRegisterData] = useState({
     cnpj: "",
     name: "",
@@ -42,27 +64,222 @@ const Login = () => {
   const [isEligible, setIsEligible] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [termsAccepted, setTermsAccepted] = useState(false);
+  
+  // Documentos legais
+  const [legalDocuments, setLegalDocuments] = useState<{
+    terms: any | null;
+    privacy: any | null;
+  }>({ terms: null, privacy: null });
+  const [isLoadingDocuments, setIsLoadingDocuments] = useState(false);
+  const [isViewingDocuments, setIsViewingDocuments] = useState(false);
+  const [viewingDocumentType, setViewingDocumentType] = useState<'TERMS' | 'PRIVACY' | null>(null);
+  
+  // Documentos pendentes no login
+  const [pendingDocuments, setPendingDocuments] = useState<any[]>([]);
+  const [isAcceptanceDialogOpen, setIsAcceptanceDialogOpen] = useState(false);
+  const [isAccepting, setIsAccepting] = useState(false);
+  const [currentPendingDocumentIndex, setCurrentPendingDocumentIndex] = useState(0);
+  const [acceptedDocumentIds, setAcceptedDocumentIds] = useState<number[]>([]);
+  const [storedLoginData, setStoredLoginData] = useState<{ email: string; password: string } | null>(null);
+
+  // Carregar documentos legais ao montar o componente
+  useEffect(() => {
+    loadLegalDocuments();
+  }, []);
+
+  const loadLegalDocuments = async () => {
+    setIsLoadingDocuments(true);
+    try {
+      const [terms, privacy] = await Promise.all([
+        legalDocumentService.getActiveByType('TERMS').catch(() => null),
+        legalDocumentService.getActiveByType('PRIVACY').catch(() => null),
+      ]);
+      
+      setLegalDocuments({ terms, privacy });
+    } catch (error) {
+      console.error('Erro ao carregar documentos legais:', error);
+    } finally {
+      setIsLoadingDocuments(false);
+    }
+  };
+
+  const handleViewDocument = (type: 'TERMS' | 'PRIVACY') => {
+    setViewingDocumentType(type);
+    setIsViewingDocuments(true);
+  };
+
+  const getCurrentDocument = () => {
+    if (!viewingDocumentType) return null;
+    return viewingDocumentType === 'TERMS' ? legalDocuments.terms : legalDocuments.privacy;
+  };
+
+  // Carregar documento pendente completo
+  const [currentPendingDocument, setCurrentPendingDocument] = useState<any | null>(null);
+  const [isLoadingPendingDocument, setIsLoadingPendingDocument] = useState(false);
+
+  useEffect(() => {
+    if (isAcceptanceDialogOpen && pendingDocuments.length > 0) {
+      loadCurrentPendingDocument();
+    }
+  }, [isAcceptanceDialogOpen, currentPendingDocumentIndex, pendingDocuments]);
+
+  const loadCurrentPendingDocument = async () => {
+    if (pendingDocuments.length === 0) return;
+    
+    const currentDoc = pendingDocuments[currentPendingDocumentIndex];
+    if (!currentDoc) return;
+
+    setIsLoadingPendingDocument(true);
+    try {
+      const doc = await legalDocumentService.getActiveByType(currentDoc.type);
+      setCurrentPendingDocument(doc);
+    } catch (error) {
+      console.error('Erro ao carregar documento pendente:', error);
+      toast.error('Erro ao carregar documento');
+    } finally {
+      setIsLoadingPendingDocument(false);
+    }
+  };
+
+  const handleAcceptCurrentDocument = async () => {
+    if (!currentPendingDocument || !storedLoginData) return;
+    
+    const docId = currentPendingDocument.id;
+    
+    // Adicionar à lista de aceitos
+    if (!acceptedDocumentIds.includes(docId)) {
+      setAcceptedDocumentIds([...acceptedDocumentIds, docId]);
+    }
+
+    // Se há mais documentos, avançar para o próximo
+    if (currentPendingDocumentIndex < pendingDocuments.length - 1) {
+      setCurrentPendingDocumentIndex(currentPendingDocumentIndex + 1);
+      setCurrentPendingDocument(null);
+    } else {
+      // Último documento - aceitar todos e fazer login
+      await handleAcceptAllDocuments();
+    }
+  };
+
+  const handleAcceptAllDocuments = async () => {
+    if (!storedLoginData) return;
+
+    // Coletar todos os IDs dos documentos pendentes
+    let allDocumentIds = [...pendingDocuments.map(d => d.id)];
+    
+    // Garantir que o documento atual também está incluído
+    if (currentPendingDocument && !allDocumentIds.includes(currentPendingDocument.id)) {
+      allDocumentIds.push(currentPendingDocument.id);
+    }
+
+    // Garantir que todos os documentos visualizados estão na lista
+    const finalDocumentIds = [...new Set(allDocumentIds)];
+
+    setIsAccepting(true);
+    try {
+      // Aceitar todos os documentos usando o endpoint especial de login
+      await legalDocumentService.acceptDuringLogin(
+        storedLoginData.email,
+        storedLoginData.password,
+        finalDocumentIds
+      );
+
+      toast.success("Documentos aceitos com sucesso!");
+      setIsAcceptanceDialogOpen(false);
+      
+      // Tentar fazer login novamente
+      const result = await login(storedLoginData.email, storedLoginData.password);
+      if (result.success) {
+        // Salvar email se "Lembrar-me" estiver marcado
+        if (rememberMe) {
+          localStorage.setItem("rememberedEmail", storedLoginData.email);
+        } else {
+          localStorage.removeItem("rememberedEmail");
+        }
+        toast.success("Login realizado com sucesso!");
+        navigate("/");
+      } else {
+        toast.error(result.message || "Erro ao fazer login após aceitar documentos");
+      }
+    } catch (error: any) {
+      toast.error(error.message || "Erro ao aceitar documentos");
+    } finally {
+      setIsAccepting(false);
+      setPendingDocuments([]);
+      setCurrentPendingDocumentIndex(0);
+      setAcceptedDocumentIds([]);
+      setStoredLoginData(null);
+    }
+  };
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
     
-    const success = await login(loginData.email, loginData.password);
+    try {
+      const result = await login(loginData.email, loginData.password);
+      
+      if (result.success) {
+        // Salvar email se "Lembrar-me" estiver marcado
+        if (rememberMe) {
+          localStorage.setItem("rememberedEmail", loginData.email);
+        } else {
+          // Remover email salvo se desmarcar
+          localStorage.removeItem("rememberedEmail");
+        }
+        
+        toast.success("Login realizado com sucesso!");
+        navigate("/");
+      } else if (result.requiresAcceptance && result.pendingDocuments) {
+        // Salvar dados de login temporariamente
+        setStoredLoginData({ email: loginData.email, password: loginData.password });
+        setPendingDocuments(result.pendingDocuments);
+        setCurrentPendingDocumentIndex(0);
+        setAcceptedDocumentIds([]);
+        setIsAcceptanceDialogOpen(true);
+        toast.info(result.message || "Você precisa aceitar os novos termos para continuar");
+      } else if (result.requires2FA) {
+        // Salvar email mesmo durante verificação de código
+        if (rememberMe) {
+          localStorage.setItem("rememberedEmail", loginData.email);
+        } else {
+          localStorage.removeItem("rememberedEmail");
+        }
+        
+        setRequiresVerification(true);
+        toast.success(result.message || "Código de verificação enviado por email!");
+      } else {
+        toast.warning(result.message || "Email ou senha incorretos!", {
+          style: {
+            backgroundColor: "#fef3c7",
+            color: "#92400e",
+            border: "1px solid #fbbf24",
+          },
+        });
+      }
+    } catch (error) {
+      console.error("Erro no login:", error);
+      toast.error("Erro ao fazer login. Tente novamente.");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleVerifyCode = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsVerifying(true);
+    
+    const success = await verifyCode(loginData.email, verificationCode);
     
     if (success) {
-      toast.success("Login realizado com sucesso!");
+      toast.success("Código verificado! Login realizado com sucesso!");
       navigate("/");
     } else {
-      toast.warning("Email ou senha incorretos!", {
-        style: {
-          backgroundColor: "#fef3c7",
-          color: "#92400e",
-          border: "1px solid #fbbf24",
-        },
-      });
+      toast.error("Código inválido ou expirado. Verifique seu email e tente novamente.");
+      setVerificationCode("");
     }
     
-    setIsLoading(false);
+    setIsVerifying(false);
   };
 
   const handleValidateCnpj = async (e?: React.FormEvent) => {
@@ -83,8 +300,18 @@ const Login = () => {
       const normalizedCnpj = registerData.cnpj.replace(/\D/g, '');
       const result = await agencyRegistrationService.validateCnpj(normalizedCnpj);
       
+      // Verificar se agência já existe
+      if (result.alreadyExists) {
+        setCnpjValidated(false);
+        setIsEligible(false);
+        setErrorMessage("Este CPF/CNPJ já está cadastrado. Faça login para acessar sua conta.");
+        toast.error("Este CPF/CNPJ já está cadastrado");
+        return;
+      }
+      
+      setCnpjValidated(true);
+      
       if (result.eligible) {
-        setCnpjValidated(true);
         setIsEligible(true);
         setErrorMessage(null);
         
@@ -95,10 +322,10 @@ const Login = () => {
         
         toast.success("CPF/CNPJ válido! Preencha os dados para continuar.");
       } else {
+        // Não encontrado na campanha, mas permite cadastro mesmo assim
         setIsEligible(false);
-        setCnpjValidated(true);
-        setErrorMessage("CPF/CNPJ não encontrado na campanha");
-        toast.error("CPF/CNPJ não encontrado na campanha");
+        setErrorMessage(null);
+        toast.info("Suas vendas ainda não foram computadas na campanha. Faça seu cadastro normalmente — assim que a pontuação for atualizada, seus pontos aparecerão automaticamente na sua conta.");
       }
     } catch (error: any) {
       setErrorMessage("Erro ao validar CPF/CNPJ. Tente novamente.");
@@ -257,8 +484,16 @@ const Login = () => {
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!cnpjValidated || !isEligible) {
-      toast.error("Valide o CPF/CNPJ primeiro");
+    // Validar formato do CNPJ, mas não bloquear se não encontrar na campanha
+    if (!registerData.cnpj.trim()) {
+      toast.error("CPF/CNPJ é obrigatório");
+      return;
+    }
+
+    // Validar formato básico do CNPJ (11 ou 14 dígitos)
+    const normalizedCnpj = registerData.cnpj.replace(/\D/g, '');
+    if (normalizedCnpj.length !== 11 && normalizedCnpj.length !== 14) {
+      toast.error("CPF/CNPJ inválido. CPF deve ter 11 dígitos e CNPJ deve ter 14 dígitos");
       return;
     }
 
@@ -283,6 +518,15 @@ const Login = () => {
       const normalizedCnpj = registerData.cnpj.replace(/\D/g, '');
       const normalizedCep = registerData.address.cep.replace(/\D/g, '');
       
+      // Coletar IDs dos documentos aceitos
+      const acceptedDocumentIds: number[] = [];
+      if (legalDocuments.terms) {
+        acceptedDocumentIds.push(legalDocuments.terms.id);
+      }
+      if (legalDocuments.privacy) {
+        acceptedDocumentIds.push(legalDocuments.privacy.id);
+      }
+      
       await agencyRegistrationService.register({
         cnpj: normalizedCnpj,
         name: registerData.name,
@@ -293,6 +537,7 @@ const Login = () => {
           cep: normalizedCep
         },
         password: registerData.password,
+        acceptedLegalDocuments: acceptedDocumentIds,
       });
 
       toast.success("Agência registrada com sucesso! Faça login para continuar.");
@@ -338,17 +583,34 @@ const Login = () => {
   };
 
   return (
-    <div className="min-h-screen bg-background flex items-center justify-center px-4 py-12">
+    <div className={`min-h-screen bg-background flex items-center justify-center px-4 py-12 relative ${requiresVerification ? 'pt-24' : ''}`}>
+      {/* Banner fixo de verificação de dispositivo */}
+      {requiresVerification && (
+        <div className="fixed top-0 left-0 right-0 w-full bg-primary text-primary-foreground py-4 z-50 shadow-lg">
+          <div className="max-w-md mx-auto px-4 text-center">
+            <p className="text-base font-medium">
+              <strong>🔐 Verificação de Dispositivo</strong>
+              <br />
+              <span className="text-sm opacity-90">
+                Enviamos um código de 6 dígitos para <strong>{loginData.email}</strong>
+              </span>
+            </p>
+          </div>
+        </div>
+      )}
+      
       <div className="w-full max-w-md">
         {/* Header */}
         <div className="mb-8 text-center">
-          <button
-            onClick={() => navigate("/")}
-            className="inline-flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors mb-4"
-          >
-            <ArrowLeft className="w-4 h-4" />
-            Voltar
-          </button>
+          {!requiresVerification && (
+            <button
+              onClick={() => navigate("/")}
+              className="inline-flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors mb-4"
+            >
+              <ArrowLeft className="w-4 h-4" />
+              Voltar
+            </button>
+          )}
           <div className="flex items-center justify-center mb-4">
             <img src={logo} alt="Logo" className="h-16" />
           </div>
@@ -359,13 +621,21 @@ const Login = () => {
         </div>
 
         {/* Tabs */}
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+        <Tabs value={activeTab} onValueChange={requiresVerification ? undefined : setActiveTab} className="w-full">
           <TabsList className="grid w-full grid-cols-2">
-            <TabsTrigger value="login" className="flex items-center gap-2">
+            <TabsTrigger 
+              value="login" 
+              className="flex items-center gap-2"
+              disabled={requiresVerification}
+            >
               <LogIn className="w-4 h-4" />
               Login
             </TabsTrigger>
-            <TabsTrigger value="register" className="flex items-center gap-2">
+            <TabsTrigger 
+              value="register" 
+              className="flex items-center gap-2"
+              disabled={requiresVerification}
+            >
               <UserPlus className="w-4 h-4" />
               Registrar
             </TabsTrigger>
@@ -373,36 +643,48 @@ const Login = () => {
 
           {/* Login Form */}
           <TabsContent value="login" className="mt-6">
-            <form onSubmit={handleLogin} className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="login-email">Email</Label>
-                <Input
-                  id="login-email"
-                  type="email"
-                  placeholder="seu@email.com"
-                  value={loginData.email}
-                  onChange={(e) =>
-                    setLoginData({ ...loginData, email: e.target.value })
-                  }
-                  required
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="login-password">Senha</Label>
-                <Input
-                  id="login-password"
-                  type="password"
-                  placeholder="••••••••"
-                  value={loginData.password}
-                  onChange={(e) =>
-                    setLoginData({ ...loginData, password: e.target.value })
-                  }
-                  required
-                />
-              </div>
+            {!requiresVerification ? (
+              <form onSubmit={handleLogin} className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="login-email">Email</Label>
+                  <Input
+                    id="login-email"
+                    type="email"
+                    placeholder="seu@email.com"
+                    value={loginData.email}
+                    onChange={(e) =>
+                      setLoginData({ ...loginData, email: e.target.value })
+                    }
+                    required
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="login-password">Senha</Label>
+                  <Input
+                    id="login-password"
+                    type="password"
+                    placeholder="••••••••"
+                    value={loginData.password}
+                    onChange={(e) =>
+                      setLoginData({ ...loginData, password: e.target.value })
+                    }
+                    required
+                  />
+                </div>
               <div className="flex items-center justify-between">
                 <label className="flex items-center gap-2 text-sm text-muted-foreground cursor-pointer">
-                  <input type="checkbox" className="rounded" />
+                  <input 
+                    type="checkbox" 
+                    className="rounded" 
+                    checked={rememberMe}
+                    onChange={(e) => {
+                      setRememberMe(e.target.checked);
+                      // Se desmarcar, remover email salvo
+                      if (!e.target.checked) {
+                        localStorage.removeItem("rememberedEmail");
+                      }
+                    }}
+                  />
                   Lembrar-me
                 </label>
                 <Link
@@ -412,16 +694,82 @@ const Login = () => {
                   Esqueceu a senha?
                 </Link>
               </div>
-              <Button type="submit" className="w-full" size="lg" disabled={isLoading}>
-                <LogIn className="w-4 h-4 mr-2" />
-                {isLoading ? "Entrando..." : "Entrar"}
-              </Button>
-            </form>
+                <Button type="submit" className="w-full" size="lg" disabled={isLoading}>
+                  {isLoading ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      Acessando...
+                    </>
+                  ) : (
+                    <>
+                      <LogIn className="w-4 h-4 mr-2" />
+                      Entrar
+                    </>
+                  )}
+                </Button>
+              </form>
+            ) : (
+              <form onSubmit={handleVerifyCode} className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="verification-code">Código de Verificação</Label>
+                  <Input
+                    id="verification-code"
+                    type="text"
+                    placeholder="000000"
+                    value={verificationCode}
+                    onChange={(e) => {
+                      const value = e.target.value.replace(/\D/g, '').slice(0, 6);
+                      setVerificationCode(value);
+                    }}
+                    maxLength={6}
+                    required
+                    className="text-center text-2xl tracking-widest font-mono"
+                    autoFocus
+                  />
+                  <p className="text-xs text-muted-foreground text-center">
+                    Digite o código de 6 dígitos enviado por email
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="flex-1"
+                    onClick={() => {
+                      setRequiresVerification(false);
+                      setVerificationCode("");
+                    }}
+                    disabled={isVerifying}
+                  >
+                    Voltar
+                  </Button>
+                  <Button 
+                    type="submit" 
+                    className="flex-1" 
+                    size="lg" 
+                    disabled={isVerifying || verificationCode.length !== 6}
+                  >
+                    {isVerifying ? "Verificando..." : "Verificar Código"}
+                  </Button>
+                </div>
+              </form>
+            )}
           </TabsContent>
 
           {/* Register Form */}
           <TabsContent value="register" className="mt-6">
-            <form onSubmit={cnpjValidated && isEligible ? handleRegister : handleValidateCnpj} className="space-y-4">
+            <form onSubmit={cnpjValidated ? handleRegister : handleValidateCnpj} className="space-y-4">
+              {/* Alerta quando CNPJ não encontrado na campanha - no topo */}
+              {cnpjValidated && !isEligible && (
+                <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+                  <p className="text-sm text-yellow-800">
+                    <strong>Suas vendas ainda não foram computadas na campanha.</strong>
+                    <br />
+                    Faça seu cadastro normalmente — assim que a pontuação for atualizada, seus pontos aparecerão automaticamente na sua conta.
+                  </p>
+                </div>
+              )}
+              
               {/* Step 1: CNPJ Validation */}
               <div className="space-y-2">
                 <Label htmlFor="register-cnpj">CPF/CNPJ</Label>
@@ -448,17 +796,14 @@ const Login = () => {
                     </div>
                   )}
                 </div>
-                {cnpjValidated && !isEligible && (
-                  <p className="text-sm text-red-600">CPF/CNPJ não encontrado na campanha</p>
-                )}
               </div>
 
               {errorMessage && !cnpjValidated && (
                 <p className="text-sm text-red-600">{errorMessage}</p>
               )}
 
-              {/* Step 2: Registration Form (only shown if CNPJ is eligible) */}
-              {cnpjValidated && isEligible && (
+              {/* Step 2: Registration Form (shown after CNPJ validation, even if not found in campaign) */}
+              {cnpjValidated && (
                 <>
                   <div className="space-y-2">
                     <Label htmlFor="register-name">Nome completo</Label>
@@ -665,17 +1010,52 @@ const Login = () => {
                       onChange={(e) => setTermsAccepted(e.target.checked)}
                       required
                     />
-                    <label>
+                    <label className="flex items-center gap-1 flex-wrap">
                       Eu concordo com os{" "}
-                      <a href="#" className="text-primary hover:underline">
-                        termos de serviço
-                      </a>{" "}
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          handleViewDocument('TERMS');
+                        }}
+                        className="text-primary hover:underline font-medium flex items-center gap-1"
+                        disabled={!legalDocuments.terms}
+                      >
+                        {isLoadingDocuments ? (
+                          <Loader2 className="w-3 h-3 animate-spin" />
+                        ) : (
+                          <>
+                            <FileText className="w-3 h-3" />
+                            termos de serviço
+                          </>
+                        )}
+                      </button>{" "}
                       e{" "}
-                      <a href="#" className="text-primary hover:underline">
-                        política de privacidade
-                      </a>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          handleViewDocument('PRIVACY');
+                        }}
+                        className="text-primary hover:underline font-medium flex items-center gap-1"
+                        disabled={!legalDocuments.privacy}
+                      >
+                        {isLoadingDocuments ? (
+                          <Loader2 className="w-3 h-3 animate-spin" />
+                        ) : (
+                          <>
+                            <FileText className="w-3 h-3" />
+                            política de privacidade
+                          </>
+                        )}
+                      </button>
                     </label>
                   </div>
+                  {(!legalDocuments.terms || !legalDocuments.privacy) && !isLoadingDocuments && (
+                    <p className="text-xs text-yellow-600">
+                      ⚠️ Documentos legais não disponíveis. Entre em contato com o suporte.
+                    </p>
+                  )}
                 </>
               )}
 
@@ -687,14 +1067,14 @@ const Login = () => {
                   isLoading ||
                   isValidatingCnpj ||
                   !registerData.cnpj.trim() ||
-                  (cnpjValidated && isEligible && (!termsAccepted || !registerData.name || !registerData.email || !registerData.password || !registerData.phone || !registerData.address.cep || !registerData.address.street || !registerData.address.number || !registerData.address.neighborhood || !registerData.address.city || !registerData.address.state))
+                  (cnpjValidated && (!termsAccepted || !registerData.name || !registerData.email || !registerData.password || !registerData.phone || !registerData.address.cep || !registerData.address.street || !registerData.address.number || !registerData.address.neighborhood || !registerData.address.city || !registerData.address.state))
                 }
               >
                 {isValidatingCnpj ? (
                   "Validando..."
                 ) : isLoading ? (
                   "Registrando..."
-                ) : cnpjValidated && isEligible ? (
+                ) : cnpjValidated ? (
                   <>
                     <UserPlus className="w-4 h-4 mr-2" />
                     Criar conta
@@ -707,6 +1087,140 @@ const Login = () => {
           </TabsContent>
         </Tabs>
       </div>
+
+      {/* Dialog para visualizar documentos legais */}
+      <Dialog open={isViewingDocuments} onOpenChange={setIsViewingDocuments}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>
+              {viewingDocumentType === 'TERMS' ? 'Termos de Serviço' : 'Política de Privacidade'}
+            </DialogTitle>
+            <DialogDescription>
+              {getCurrentDocument() && (
+                `Versão ${getCurrentDocument()!.version} - Atualizada em ${new Date(getCurrentDocument()!.created_at).toLocaleDateString('pt-BR')}`
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          
+          {getCurrentDocument() ? (
+            <div className="space-y-4">
+              <div
+                className="prose max-w-none p-4 border rounded-lg bg-muted/50 max-h-[60vh] overflow-y-auto"
+                dangerouslySetInnerHTML={{ 
+                  __html: getCurrentDocument()!.content 
+                }}
+              />
+            </div>
+          ) : (
+            <p className="text-muted-foreground">Documento não disponível.</p>
+          )}
+
+          <DialogFooter>
+            <Button onClick={() => setIsViewingDocuments(false)}>Fechar</Button>
+            <Button
+              onClick={() => {
+                setTermsAccepted(true);
+                setIsViewingDocuments(false);
+                toast.success("Documento visualizado. Você pode prosseguir com o cadastro.");
+              }}
+              variant="default"
+            >
+              <CheckCircle2 className="w-4 h-4 mr-2" />
+              Aceitar e Continuar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog para aceitar documentos pendentes no login */}
+      <Dialog open={isAcceptanceDialogOpen} onOpenChange={(open) => {
+        if (!open && !isAccepting) {
+          // Só permitir fechar se não estiver aceitando
+          setIsAcceptanceDialogOpen(false);
+          setPendingDocuments([]);
+          setStoredLoginData(null);
+        }
+      }}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>
+              Aceitar Termos e Políticas
+            </DialogTitle>
+            <DialogDescription>
+              {pendingDocuments.length > 0 && (
+                `Você precisa aceitar ${pendingDocuments.length} documento(s) para continuar. ` +
+                `Documento ${currentPendingDocumentIndex + 1} de ${pendingDocuments.length}`
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          
+          {isLoadingPendingDocument ? (
+            <div className="flex items-center justify-center min-h-[400px]">
+              <Loader2 className="w-8 h-8 animate-spin text-primary" />
+            </div>
+          ) : currentPendingDocument ? (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-lg font-semibold">
+                    {currentPendingDocument.type === 'TERMS' ? 'Termos de Serviço' : 
+                     currentPendingDocument.type === 'PRIVACY' ? 'Política de Privacidade' : 
+                     'Regras da Campanha'}
+                  </h3>
+                  <p className="text-sm text-muted-foreground">
+                    Versão {currentPendingDocument.version} - Atualizada em{" "}
+                    {new Date(currentPendingDocument.created_at).toLocaleDateString('pt-BR')}
+                  </p>
+                </div>
+              </div>
+              
+              <div
+                className="prose max-w-none p-4 border rounded-lg bg-muted/50 max-h-[50vh] overflow-y-auto"
+                dangerouslySetInnerHTML={{ 
+                  __html: currentPendingDocument.content 
+                }}
+              />
+            </div>
+          ) : (
+            <p className="text-muted-foreground">Carregando documento...</p>
+          )}
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setIsAcceptanceDialogOpen(false);
+                setPendingDocuments([]);
+                setStoredLoginData(null);
+              }}
+              disabled={isAccepting}
+            >
+              Cancelar
+            </Button>
+            <Button
+              onClick={handleAcceptCurrentDocument}
+              disabled={isAccepting || isLoadingPendingDocument || !currentPendingDocument}
+            >
+              {isAccepting ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Aceitando...
+                </>
+              ) : currentPendingDocumentIndex < pendingDocuments.length - 1 ? (
+                <>
+                  <CheckCircle2 className="w-4 h-4 mr-2" />
+                  Aceitar e Próximo
+                </>
+              ) : (
+                <>
+                  <CheckCircle2 className="w-4 h-4 mr-2" />
+                  Aceitar e Continuar
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

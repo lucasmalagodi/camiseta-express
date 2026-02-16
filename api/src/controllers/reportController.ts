@@ -19,6 +19,7 @@ export const reportController = {
                 sourceTable: req.body.sourceTable,
                 visualizationType: req.body.visualizationType,
                 config: req.body.config,
+                isPublic: req.body.isPublic,
             };
 
             // Validações básicas
@@ -46,7 +47,17 @@ export const reportController = {
     // Listar todos os relatórios
     async getAll(req: Request, res: Response) {
         try {
-            const reports = await reportService.getAllReports();
+            const userId = (req.user as any)?.id;
+            let reports;
+            if (userId) {
+                // Se tem usuário autenticado, retornar apenas públicos ou do próprio usuário
+                reports = await reportService.getAvailableReportsForUser(userId);
+            } else {
+                // Se não tem usuário, retornar apenas públicos
+                reports = await reportService.getAllReports().then(rs => 
+                    rs.filter(r => r.isPublic)
+                );
+            }
             res.json({ success: true, data: reports });
         } catch (error: any) {
             console.error('Error fetching reports:', error);
@@ -102,6 +113,7 @@ export const reportController = {
                 sourceTable: req.body.sourceTable,
                 visualizationType: req.body.visualizationType,
                 config: req.body.config,
+                isPublic: req.body.isPublic,
             };
 
             // Remover campos undefined
@@ -217,7 +229,15 @@ export const dashboardWidgetController = {
     // Criar widget
     async create(req: Request, res: Response) {
         try {
-            const { reportId, position } = req.body;
+            const userId = (req.user as any)?.id;
+            if (!userId) {
+                return res.status(401).json({
+                    success: false,
+                    message: 'Usuário não autenticado',
+                });
+            }
+
+            const { reportId, position, expanded } = req.body;
 
             if (!reportId) {
                 return res.status(400).json({
@@ -229,7 +249,8 @@ export const dashboardWidgetController = {
             const widget = await reportService.createDashboardWidget({
                 reportId,
                 position,
-            });
+                expanded,
+            }, userId);
 
             res.status(201).json({ success: true, data: widget });
         } catch (error: any) {
@@ -244,7 +265,15 @@ export const dashboardWidgetController = {
     // Listar widgets ativos
     async getActive(req: Request, res: Response) {
         try {
-            const widgets = await reportService.getActiveDashboardWidgets();
+            const userId = (req.user as any)?.id;
+            if (!userId) {
+                return res.status(401).json({
+                    success: false,
+                    message: 'Usuário não autenticado',
+                });
+            }
+
+            const widgets = await reportService.getActiveDashboardWidgets(userId);
             res.json({ success: true, data: widgets });
         } catch (error: any) {
             console.error('Error fetching widgets:', error);
@@ -287,6 +316,14 @@ export const dashboardWidgetController = {
     // Atualizar widget
     async update(req: Request, res: Response) {
         try {
+            const userId = (req.user as any)?.id;
+            if (!userId) {
+                return res.status(401).json({
+                    success: false,
+                    message: 'Usuário não autenticado',
+                });
+            }
+
             const id = parseInt(req.params.id as string);
             if (isNaN(id)) {
                 return res.status(400).json({
@@ -295,11 +332,12 @@ export const dashboardWidgetController = {
                 });
             }
 
-            const { position, active } = req.body;
+            const { position, expanded, active } = req.body;
             const widget = await reportService.updateDashboardWidget(id, {
                 position,
+                expanded,
                 active,
-            });
+            }, userId);
 
             res.json({ success: true, data: widget });
         } catch (error: any) {
@@ -314,6 +352,14 @@ export const dashboardWidgetController = {
     // Deletar widget
     async delete(req: Request, res: Response) {
         try {
+            const userId = (req.user as any)?.id;
+            if (!userId) {
+                return res.status(401).json({
+                    success: false,
+                    message: 'Usuário não autenticado',
+                });
+            }
+
             const id = parseInt(req.params.id as string);
             if (isNaN(id)) {
                 return res.status(400).json({
@@ -322,7 +368,7 @@ export const dashboardWidgetController = {
                 });
             }
 
-            await reportService.deleteDashboardWidget(id);
+            await reportService.deleteDashboardWidget(id, userId);
             res.json({ success: true, message: 'Widget deletado com sucesso' });
         } catch (error: any) {
             console.error('Error deleting widget:', error);

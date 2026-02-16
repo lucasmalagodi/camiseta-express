@@ -35,6 +35,7 @@ import { Loader2, UserPlus, Shield, Edit2, Check, X, Search, Filter, XCircle } f
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { AlertCircle } from "lucide-react";
 import { useAdminAuth } from "@/contexts/AdminAuthContext";
+import { useTableSort } from "@/hooks/useTableSort";
 
 interface AdminUser {
   id: number;
@@ -69,6 +70,8 @@ const AdminAccess = () => {
   // Formulário de edição
   const [editingName, setEditingName] = useState("");
   const [editingRole, setEditingRole] = useState<string>("");
+  
+  const { sortedData, handleSort, getSortIcon } = useTableSort(users);
 
   useEffect(() => {
     loadUsers();
@@ -422,16 +425,41 @@ const AdminAccess = () => {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Nome</TableHead>
-                    <TableHead>Email</TableHead>
-                    <TableHead>Perfil</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Cadastrado em</TableHead>
+                    <TableHead 
+                      className="cursor-pointer hover:bg-muted/50 select-none"
+                      onClick={() => handleSort("name")}
+                    >
+                      Nome{getSortIcon("name")}
+                    </TableHead>
+                    <TableHead 
+                      className="cursor-pointer hover:bg-muted/50 select-none"
+                      onClick={() => handleSort("email")}
+                    >
+                      Email{getSortIcon("email")}
+                    </TableHead>
+                    <TableHead 
+                      className="cursor-pointer hover:bg-muted/50 select-none"
+                      onClick={() => handleSort("role")}
+                    >
+                      Perfil{getSortIcon("role")}
+                    </TableHead>
+                    <TableHead 
+                      className="cursor-pointer hover:bg-muted/50 select-none"
+                      onClick={() => handleSort("active")}
+                    >
+                      Status{getSortIcon("active")}
+                    </TableHead>
+                    <TableHead 
+                      className="cursor-pointer hover:bg-muted/50 select-none"
+                      onClick={() => handleSort("createdAt")}
+                    >
+                      Cadastrado em{getSortIcon("createdAt")}
+                    </TableHead>
                     <TableHead className="text-right">Ações</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {users.map((user) => (
+                  {sortedData.map((user) => (
                     <TableRow key={user.id}>
                       <TableCell>
                         {editingId === user.id ? (

@@ -586,6 +586,180 @@ export const agencyPointsImportService = {
                 }
             }
 
+            // Sincronizar import items com ledger para agências já existentes
+            // Isso garante que quando uma planilha é importada, os pontos sejam computados
+            // para agências que já estavam cadastradas
+            try {
+                importLogger.logInfo(importId, 'Sincronizando import items com ledger para agências existentes', {});
+                
+                // Buscar todos os CNPJs únicos dos import items desta importação
+                const cnpjResults = await query(
+                    `SELECT DISTINCT REPLACE(REPLACE(REPLACE(REPLACE(cnpj, '.', ''), '/', ''), '-', ''), ' ', '') as normalized_cnpj
+                     FROM agency_points_import_items 
+                     WHERE import_id = ?`,
+                    [importId]
+                ) as any[];
+
+                if (Array.isArray(cnpjResults) && cnpjResults.length > 0) {
+                    let syncedCount = 0;
+                    
+                    for (const cnpjRow of cnpjResults) {
+                        const normalizedCnpj = cnpjRow.normalized_cnpj;
+                        
+                        // Buscar agência com este CNPJ
+                        const agencyResults = await query(
+                            `SELECT id FROM agencies 
+                             WHERE REPLACE(REPLACE(REPLACE(REPLACE(cnpj, '.', ''), '/', ''), '-', ''), ' ', '') = ?`,
+                            [normalizedCnpj]
+                        ) as any[];
+
+                        if (Array.isArray(agencyResults) && agencyResults.length > 0) {
+                            const agencyId = agencyResults[0].id;
+                            
+                            // Buscar dados da agência atual
+                            const agencyDataResults = await query(
+                                `SELECT id, branch, executive_name FROM agencies WHERE id = ?`,
+                                [agencyId]
+                            ) as any[];
+                            
+                            const agencyData = Array.isArray(agencyDataResults) && agencyDataResults.length > 0 
+                                ? agencyDataResults[0] 
+                                : null;
+                            
+                            const currentBranch = agencyData?.branch || null;
+                            const currentExecutiveName = agencyData?.executive_name || null;
+                            
+                            // Buscar branch e executive_name mais comuns dos import items desta importação para este CNPJ
+                            // Usar apenas desta importação para garantir que estamos sincronizando com os dados mais recentes
+                            const branchResults = await query(
+                                `SELECT branch, COUNT(*) as count 
+                                 FROM agency_points_import_items 
+                                 WHERE REPLACE(REPLACE(REPLACE(REPLACE(cnpj, '.', ''), '/', ''), '-', ''), ' ', '') = ?
+                                 AND import_id = ?
+                                 AND branch IS NOT NULL AND branch != ''
+                                 GROUP BY branch
+                                 ORDER BY count DESC
+                                 LIMIT 1`,
+                                [normalizedCnpj, importId]
+                            ) as any[];
+
+                            const newBranch = Array.isArray(branchResults) && branchResults.length > 0 
+                                ? branchResults[0].branch 
+                                : null;
+
+                            const executiveResults = await query(
+                                `SELECT executive_name, COUNT(*) as count 
+                                 FROM agency_points_import_items 
+                                 WHERE REPLACE(REPLACE(REPLACE(REPLACE(cnpj, '.', ''), '/', ''), '-', ''), ' ', '') = ?
+                                 AND import_id = ?
+                                 AND executive_name IS NOT NULL AND executive_name != ''
+                                 GROUP BY executive_name
+                                 ORDER BY count DESC
+                                 LIMIT 1`,
+                                [normalizedCnpj, importId]
+                            ) as any[];
+
+                            const newExecutiveName = Array.isArray(executiveResults) && executiveResults.length > 0 
+                                ? executiveResults[0].executive_name 
+                                : null;
+
+                            // Atualizar branch e executive_name se estiverem faltando ou se houver novos dados
+                            const updates: string[] = [];
+                            const updateValues: any[] = [];
+
+                            if (!currentBranch && newBranch) {
+                                updates.push('branch = ?');
+                                updateValues.push(newBranch);
+                            }
+
+                            if (!currentExecutiveName && newExecutiveName) {
+                                updates.push('executive_name = ?');
+                                updateValues.push(newExecutiveName);
+                            }
+
+                            if (updates.length > 0) {
+                                updateValues.push(agencyId);
+                                await query(
+                                    `UPDATE agencies SET ${updates.join(', ')}, updated_at = NOW() WHERE id = ?`,
+                                    updateValues
+                                );
+                                
+                                importLogger.logInfo(
+                                    importId,
+                                    `Agência ${agencyId} atualizada com dados da planilha`,
+                                    { 
+                                        agencyId, 
+                                        branchUpdated: !currentBranch && newBranch ? newBranch : null,
+                                        executiveUpdated: !currentExecutiveName && newExecutiveName ? newExecutiveName : null
+                                    }
+                                );
+                            }
+                            
+                            // Buscar import items deste CNPJ nesta importação que ainda não estão no ledger
+                            const importItems = await query(
+                                `SELECT api.id, api.import_id, api.points 
+                                 FROM agency_points_import_items api
+                                 LEFT JOIN agency_points_ledger apl ON (
+                                     apl.agency_id = ? 
+                                     AND apl.source_type = 'IMPORT' 
+                                     AND apl.source_id = api.import_id
+                                     AND apl.points = api.points
+                                 )
+                                 WHERE REPLACE(REPLACE(REPLACE(REPLACE(api.cnpj, '.', ''), '/', ''), '-', ''), ' ', '') = ?
+                                 AND api.import_id = ?
+                                 AND apl.id IS NULL`,
+                                [agencyId, normalizedCnpj, importId]
+                            ) as any[];
+
+                            // Criar ledger entries para cada import item que ainda não está no ledger
+                            if (Array.isArray(importItems) && importItems.length > 0) {
+                                for (const item of importItems) {
+                                    // Verificar se já existe entrada no ledger para evitar duplicatas
+                                    const existingLedger = await query(
+                                        `SELECT id FROM agency_points_ledger 
+                                         WHERE agency_id = ? 
+                                         AND source_type = 'IMPORT' 
+                                         AND source_id = ? 
+                                         AND points = ?`,
+                                        [agencyId, item.import_id, item.points]
+                                    ) as any[];
+
+                                    if (!Array.isArray(existingLedger) || existingLedger.length === 0) {
+                                        await query(
+                                            'INSERT INTO agency_points_ledger (agency_id, source_type, source_id, points, description, created_at) VALUES (?, ?, ?, ?, ?, NOW())',
+                                            [
+                                                agencyId,
+                                                'IMPORT',
+                                                item.import_id,
+                                                item.points,
+                                                `Points import from import ${item.import_id}`
+                                            ]
+                                        );
+                                        syncedCount++;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    
+                    if (syncedCount > 0) {
+                        importLogger.logInfo(
+                            importId,
+                            `Sincronização concluída: ${syncedCount} entradas criadas no ledger para agências existentes`,
+                            { syncedCount }
+                        );
+                    }
+                }
+            } catch (syncError) {
+                // Log erro mas não falha a importação
+                importLogger.logError(
+                    importId,
+                    'Erro ao sincronizar import items com ledger',
+                    syncError instanceof Error ? syncError : new Error(String(syncError)),
+                    {}
+                );
+            }
+
             // Finalizar com sucesso
             await query(
                 'UPDATE agency_points_imports SET status = ?, processed_rows = ?, finished_at = NOW() WHERE id = ?',

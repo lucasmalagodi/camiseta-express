@@ -4,16 +4,16 @@ const express_1 = require("express");
 const productController_1 = require("../controllers/productController");
 const productImageController_1 = require("../controllers/productImageController");
 const productPriceController_1 = require("../controllers/productPriceController");
+const productVariantController_1 = require("../controllers/productVariantController");
 const uploadController_1 = require("../controllers/uploadController");
 const uploadMiddleware_1 = require("../middlewares/uploadMiddleware");
 const router = (0, express_1.Router)();
 // Product routes
+// IMPORTANTE: Rotas mais específicas devem vir ANTES das rotas genéricas
 router.post('/', productController_1.productController.create);
-router.put('/:id', productController_1.productController.update);
-router.delete('/:id', productController_1.productController.delete);
 router.get('/', productController_1.productController.getAll);
+// Rotas específicas primeiro (antes de /:id genérico)
 router.get('/:id/details', productController_1.productController.getByIdWithDetails); // Endpoint otimizado com detalhes
-router.get('/:id', productController_1.productController.getById);
 // Product Images sub-resource
 router.post('/:id/images/upload', uploadMiddleware_1.upload.single('image'), uploadController_1.uploadController.uploadProductImage);
 router.post('/:id/images', productImageController_1.productImageController.create);
@@ -26,4 +26,13 @@ router.post('/:id/prices', productPriceController_1.productPriceController.creat
 router.put('/:id/prices/:priceId', productPriceController_1.productPriceController.update);
 router.delete('/:id/prices/:priceId', productPriceController_1.productPriceController.delete);
 router.get('/:id/prices', productPriceController_1.productPriceController.getAll);
+// Product Variants sub-resource
+router.post('/:id/variants', productVariantController_1.productVariantController.create);
+router.put('/:id/variants/:variantId', productVariantController_1.productVariantController.update);
+router.delete('/:id/variants/:variantId', productVariantController_1.productVariantController.delete);
+router.get('/:id/variants', productVariantController_1.productVariantController.getAll);
+// Rotas genéricas por último (para não capturar rotas específicas)
+router.put('/:id', productController_1.productController.update);
+router.delete('/:id', productController_1.productController.delete);
+router.get('/:id', productController_1.productController.getById);
 exports.default = router;

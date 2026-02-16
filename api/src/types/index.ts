@@ -40,11 +40,23 @@ export interface ProductPrice {
     updatedAt: Date;
 }
 
+export interface ProductVariant {
+    id: number;
+    productId: number;
+    model: 'MASCULINO' | 'FEMININO' | 'UNISEX';
+    size: string;
+    stock: number;
+    active: boolean;
+    createdAt: Date;
+    updatedAt: Date;
+}
+
 export interface CreateProductDto {
     categoryId: number;
     name: string;
     description: string;
     quantity?: number;
+    variants?: CreateProductVariantDto[];
 }
 
 export interface UpdateProductDto {
@@ -53,6 +65,7 @@ export interface UpdateProductDto {
     description?: string;
     quantity?: number;
     active?: boolean | number; // Aceita boolean (convertido para 1/0) ou number direto
+    variants?: CreateProductVariantDto[];
 }
 
 export interface CreateCategoryDto {
@@ -91,6 +104,65 @@ export interface UpdateProductPriceDto {
     active?: boolean;
 }
 
+export interface CreateProductVariantDto {
+    model: 'MASCULINO' | 'FEMININO' | 'UNISEX';
+    size: string;
+    stock: number;
+}
+
+export interface UpdateProductVariantDto {
+    model?: 'MASCULINO' | 'FEMININO' | 'UNISEX';
+    size?: string;
+    stock?: number;
+    active?: boolean;
+}
+
+export interface SizeChart {
+    id: number;
+    name: string;
+    description?: string;
+    imagePath?: string;
+    active: boolean;
+    createdAt: Date;
+    updatedAt: Date;
+}
+
+export interface SizeChartMeasurement {
+    id: number;
+    sizeChartId: number;
+    size: string;
+    chest?: number;
+    waist?: number;
+    length?: number;
+    shoulder?: number;
+    sleeve?: number;
+    createdAt: Date;
+    updatedAt: Date;
+}
+
+export interface CreateSizeChartDto {
+    name: string;
+    description?: string;
+    imagePath?: string;
+    measurements?: CreateSizeChartMeasurementDto[];
+}
+
+export interface CreateSizeChartMeasurementDto {
+    size: string;
+    chest?: number;
+    waist?: number;
+    length?: number;
+    shoulder?: number;
+    sleeve?: number;
+}
+
+export interface UpdateSizeChartDto {
+    name?: string;
+    description?: string;
+    imagePath?: string;
+    active?: boolean;
+}
+
 export interface ProductFilters {
     categoryId?: number;
     active?: boolean;
@@ -105,7 +177,9 @@ export interface Agency {
     email: string;
     phone?: string;
     branch?: string | null;
+    branchId?: number | null;
     executive_name?: string | null;
+    executiveId?: number | null;
     active: boolean;
     createdAt: Date;
     updatedAt: Date;
@@ -181,6 +255,7 @@ export interface OrderItem {
     orderId: number;
     productId: number;
     productPriceId: number | null;
+    productVariantId: number | null;
     quantity: number;
     pointsPerUnit: number; // DECIMAL(10,2) - mantido como number no TypeScript
 }
@@ -193,6 +268,7 @@ export interface CreateAgencyDto {
     phone?: string;
     password?: string;
     address: CreateAddressDto;
+    acceptedLegalDocuments?: number[];
 }
 
 export interface CreateAddressDto {
@@ -240,6 +316,7 @@ export interface CreateOrderDto {
 export interface CreateOrderItemDto {
     productId: number;
     quantity: number;
+    variantId?: number; // ID da variação (modelo + tamanho)
 }
 
 // Reports System
@@ -291,6 +368,7 @@ export interface Report {
     visualizationType: VisualizationType;
     configJson: ReportConfig;
     createdBy: number;
+    isPublic?: boolean;
     createdAt: Date;
     updatedAt: Date;
 }
@@ -300,6 +378,7 @@ export interface CreateReportDto {
     sourceTable: ReportSourceTable;
     visualizationType: VisualizationType;
     config: ReportConfig;
+    isPublic?: boolean;
 }
 
 export interface UpdateReportDto {
@@ -307,12 +386,15 @@ export interface UpdateReportDto {
     sourceTable?: ReportSourceTable;
     visualizationType?: VisualizationType;
     config?: ReportConfig;
+    isPublic?: boolean;
 }
 
 export interface DashboardWidget {
     id: number;
+    userId: number;
     reportId: number;
     position: number;
+    expanded?: number; // 0 = 1 col, 1 = 2 cols, 2 = 3 cols
     active: boolean;
     createdAt: Date;
     updatedAt: Date;
@@ -322,9 +404,47 @@ export interface DashboardWidget {
 export interface CreateDashboardWidgetDto {
     reportId: number;
     position?: number;
+    expanded?: number;
 }
 
 export interface UpdateDashboardWidgetDto {
     position?: number;
+    expanded?: number;
+    active?: boolean;
+}
+
+// Branch System
+export interface Branch {
+    id: number;
+    name: string;
+    createdAt: Date;
+    updatedAt: Date;
+}
+
+export interface CreateBranchDto {
+    name: string;
+}
+
+export interface UpdateBranchDto {
+    name?: string;
+}
+
+// Executive Notification Email System
+export interface ExecutiveNotificationEmail {
+    id: number;
+    executiveId: number;
+    email: string;
+    active: boolean;
+    createdAt: Date;
+    updatedAt: Date;
+}
+
+export interface CreateExecutiveNotificationEmailDto {
+    executiveId: number;
+    email: string;
+}
+
+export interface UpdateExecutiveNotificationEmailDto {
+    email?: string;
     active?: boolean;
 }

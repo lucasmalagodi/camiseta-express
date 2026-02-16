@@ -89,6 +89,33 @@ const TABLE_RELATIONSHIPS: Record<string, { table: string; alias: string; on: st
         on: 'products.id = order_items.product_id',
         type: 'LEFT'
     },
+    // Relações quando agencies é a tabela principal
+    'agencies.imports': {
+        table: 'agency_points_import_items',
+        alias: 'imports',
+        on: 'imports.cnpj = agencies.cnpj',
+        type: 'LEFT'
+    },
+    'agencies.orders': {
+        table: 'orders',
+        alias: 'orders',
+        on: 'orders.agency_id = agencies.id',
+        type: 'LEFT'
+    },
+    'agencies.order_items': {
+        table: 'order_items',
+        alias: 'order_items',
+        on: 'order_items.order_id = orders.id',
+        type: 'LEFT',
+        requires: 'agencies.orders' // Requer que orders seja feito JOIN primeiro
+    },
+    'agencies.products': {
+        table: 'products',
+        alias: 'products',
+        on: 'products.id = order_items.product_id',
+        type: 'LEFT',
+        requires: 'agencies.order_items' // Requer que order_items seja feito JOIN primeiro
+    },
 };
 
 // Campos permitidos de tabelas relacionadas (para filtros)
@@ -106,6 +133,11 @@ const RELATED_TABLE_FIELDS: Record<string, string[]> = {
     'products': [
         'id', 'category_id', 'name', 'description', 'quantity', 'active',
         'created_at', 'updated_at'
+    ],
+    'imports': [
+        'id', 'import_id', 'sale_id', 'sale_date', 'cnpj', 'agency_name',
+        'branch', 'store', 'executive_name', 'supplier', 'product_name',
+        'company', 'points'
     ],
 };
 
@@ -165,12 +197,13 @@ function isRelatedFieldAllowed(relatedTable: string, field: string): boolean {
 }
 
 /**
- * Obtém os JOINs necessários baseado nos filtros e dimensões
+ * Obtém os JOINs necessários baseado nos filtros, dimensões e métricas
  */
 function getRequiredJoins(
     table: ReportSourceTable,
     filters: ReportConfig['filters'],
-    dimensions: ReportConfig['dimensions']
+    dimensions: ReportConfig['dimensions'],
+    metrics?: ReportConfig['metrics']
 ): Array<{ key: string; relationship: { table: string; alias: string; on: string; type?: 'LEFT' | 'INNER'; requires?: string } }> {
     const joins: Array<{ key: string; relationship: { table: string; alias: string; on: string; type?: 'LEFT' | 'INNER'; requires?: string } }> = [];
     const addedJoins = new Set<string>();
@@ -220,6 +253,25 @@ function getRequiredJoins(
     if (dimensions) {
         for (const dim of dimensions) {
             const parts = dim.field.split('.');
+            if (parts.length === 2) {
+                const [relationshipKey, field] = parts;
+                const joinKey = `${table}.${relationshipKey}`;
+                
+                const relationship = TABLE_RELATIONSHIPS[joinKey];
+                if (relationship) {
+                    // Validar usando o alias da tabela relacionada
+                    if (isRelatedFieldAllowed(relationship.alias, field)) {
+                        addJoinWithDependencies(joinKey);
+                    }
+                }
+            }
+        }
+    }
+
+    // Verificar métricas que referenciam tabelas relacionadas
+    if (metrics) {
+        for (const metric of metrics) {
+            const parts = metric.field.split('.');
             if (parts.length === 2) {
                 const [relationshipKey, field] = parts;
                 const joinKey = `${table}.${relationshipKey}`;
@@ -463,33 +515,78 @@ function buildSelectClause(
     // Adicionar métricas
     if (metrics && metrics.length > 0) {
         for (const metric of metrics) {
-            if (!isFieldAllowed(table, metric.field)) {
-                throw new Error(`Campo não permitido: ${metric.field}`);
+            let fieldSql: string;
+            let isNumeric: boolean;
+            
+            // Verificar se é campo de tabela relacionada (formato: "relationship_key.field")
+            const parts = metric.field.split('.');
+            if (parts.length === 2) {
+                const [relationshipKey, field] = parts;
+                
+                // Obter o alias da tabela relacionada
+                const relatedTableAlias = getRelatedTableAlias(table, relationshipKey);
+                if (!relatedTableAlias) {
+                    throw new Error(`Relacionamento não encontrado: ${relationshipKey}`);
+                }
+                
+                // Validar campo da tabela relacionada usando o alias
+                if (!isRelatedFieldAllowed(relatedTableAlias, field)) {
+                    throw new Error(`Campo não permitido na tabela relacionada: ${relatedTableAlias}.${field}`);
+                }
+                
+                // Verificar se é numérico (para tabelas relacionadas)
+                // Campos numéricos conhecidos para tabelas relacionadas
+                const numericFields: Record<string, string[]> = {
+                    'imports': ['points'],
+                    'orders': ['total_points'],
+                    'order_items': ['quantity', 'points_per_unit'],
+                };
+                isNumeric = numericFields[relatedTableAlias]?.includes(field) || false;
+                
+                // Usar o alias da tabela no SQL
+                fieldSql = escapeIdentifier(relatedTableAlias) + '.' + escapeIdentifier(field);
+            } else {
+                // Campo da tabela principal
+                if (!isFieldAllowed(table, metric.field)) {
+                    throw new Error(`Campo não permitido: ${metric.field}`);
+                }
+                isNumeric = isNumericField(table, metric.field);
+                fieldSql = escapeIdentifier(table) + '.' + escapeIdentifier(metric.field);
             }
 
             let metricSql = '';
             if (metric.operation === 'SUM') {
-                if (!isNumericField(table, metric.field)) {
+                if (!isNumeric) {
                     throw new Error(`Campo ${metric.field} não pode ser usado em SUM`);
                 }
-                metricSql = `SUM(${escapeIdentifier(table)}.${escapeIdentifier(metric.field)})`;
+                metricSql = `SUM(${fieldSql})`;
             } else if (metric.operation === 'COUNT') {
-                metricSql = `COUNT(${escapeIdentifier(table)}.${escapeIdentifier(metric.field)})`;
+                metricSql = `COUNT(${fieldSql})`;
             } else {
                 throw new Error(`Operação não permitida: ${metric.operation}`);
             }
 
-            const alias = metric.alias ? ` AS ${escapeIdentifier(metric.alias)}` : '';
+            // Se não há alias definido, gerar um nome padrão mais amigável
+            let aliasName = metric.alias;
+            if (!aliasName || aliasName.trim() === '') {
+                const parts = metric.field.split('.');
+                const fieldName = parts.length > 1 ? parts[1] : metric.field;
+                aliasName = metric.operation === 'SUM' 
+                    ? `total_${fieldName}` 
+                    : `contagem_${fieldName}`;
+            }
+            
+            const alias = ` AS ${escapeIdentifier(aliasName)}`;
             selects.push(`${metricSql}${alias}`);
-        }
-    } else {
-        // Se não há métricas, selecionar todos os campos das dimensões ou usar COUNT(*)
-        if (!dimensions || dimensions.length === 0) {
-            selects.push('COUNT(*) AS total');
         }
     }
 
-    return selects.length > 0 ? selects.join(', ') : '*';
+    // Se não há métricas nem dimensões, retornar erro (deve ter pelo menos um)
+    if (selects.length === 0) {
+        throw new Error('O relatório deve ter pelo menos uma métrica ou uma dimensão (coluna) para exibir dados.');
+    }
+
+    return selects.join(', ');
 }
 
 /**
@@ -511,10 +608,6 @@ function buildOrderByClause(
 
     const orders: string[] = [];
     for (const s of sort) {
-        if (!isFieldAllowed(table, s.field)) {
-            throw new Error(`Campo não permitido: ${s.field}`);
-        }
-
         const direction = s.direction === 'DESC' ? 'DESC' : 'ASC';
         
         // Se há GROUP BY, só pode ordenar por dimensões ou métricas
@@ -536,8 +629,8 @@ function buildOrderByClause(
                 continue;
             }
 
-            // Verificar se o campo está nas métricas
-            const metric = metrics?.find(m => m.field === s.field);
+            // Verificar se o campo está nas métricas (pode ser o campo ou o alias)
+            const metric = metrics?.find(m => m.field === s.field || (m.alias && m.alias === s.field));
             if (metric) {
                 // Quando há GROUP BY, usar alias se existir, senão usar posição numérica
                 if (metric.alias) {
@@ -554,12 +647,17 @@ function buildOrderByClause(
             }
 
             // Se não está nas dimensões nem nas métricas, não pode ordenar
+            const dimensionFields = dimensions?.map(d => d.field).join(', ') || 'nenhuma';
+            const metricFields = metrics?.map(m => m.alias || m.field).join(', ') || 'nenhuma';
             throw new Error(
                 `Campo '${s.field}' não pode ser usado em ORDER BY quando há GROUP BY. ` +
-                `Use apenas campos das dimensões ou métricas configuradas.`
+                `Use apenas dimensões selecionadas (${dimensionFields}) ou métricas (${metricFields}).`
             );
         } else {
-            // Sem GROUP BY, pode ordenar por qualquer campo permitido
+            // Sem GROUP BY, validar se o campo é permitido
+            if (!isFieldAllowed(table, s.field)) {
+                throw new Error(`Campo não permitido na ordenação: ${s.field}`);
+            }
             orders.push(`${escapeIdentifier(table)}.${escapeIdentifier(s.field)} ${direction}`);
         }
     }
@@ -574,7 +672,7 @@ function buildQuery(table: ReportSourceTable, config: ReportConfig): { sql: stri
     const mainTable = escapeIdentifier(table);
     
     // Obter JOINs necessários
-    const requiredJoins = getRequiredJoins(table, config.filters, config.dimensions);
+    const requiredJoins = getRequiredJoins(table, config.filters, config.dimensions, config.metrics);
     
     // Construir SELECT e obter informações sobre as colunas para ORDER BY
     const selectClause = buildSelectClause(table, config.dimensions, config.metrics);
@@ -608,10 +706,10 @@ function buildQuery(table: ReportSourceTable, config: ReportConfig): { sql: stri
             }
         }
         
-        // Contar métricas
+        // Contar métricas (verificar tanto pelo campo quanto pelo alias)
         if (config.metrics) {
             for (const metric of config.metrics) {
-                if (metric.field === field) {
+                if (metric.field === field || (metric.alias && metric.alias === field)) {
                     return position;
                 }
                 position++;
@@ -692,14 +790,15 @@ export async function createReport(dto: CreateReportDto, userId: number): Promis
 
     try {
         const result = await query(
-            `INSERT INTO reports (name, source_table, visualization_type, config_json, created_by)
-             VALUES (?, ?, ?, ?, ?)`,
+            `INSERT INTO reports (name, source_table, visualization_type, config_json, created_by, is_public)
+             VALUES (?, ?, ?, ?, ?, ?)`,
             [
                 dto.name,
                 dto.sourceTable,
                 dto.visualizationType,
                 JSON.stringify(dto.config),
                 userId,
+                dto.isPublic ? 1 : 0,
             ]
         ) as any;
 
@@ -752,6 +851,11 @@ export async function updateReport(
         params.push(JSON.stringify(dto.config));
     }
 
+    if (dto.isPublic !== undefined) {
+        updates.push('is_public = ?');
+        params.push(dto.isPublic ? 1 : 0);
+    }
+
     if (updates.length === 0) {
         return existing;
     }
@@ -770,9 +874,22 @@ export async function updateReport(
 }
 
 /**
- * Valida uma configuração de relatório
+ * Valida uma configuração de relatório com regras rigorosas
  */
 function validateReportConfig(table: ReportSourceTable, config: ReportConfig): void {
+    // REGRA 1: Se não tem métrica, deve ter pelo menos uma dimensão para listar dados
+    const hasMetrics = config.metrics && config.metrics.length > 0;
+    const hasDimensions = config.dimensions && config.dimensions.length > 0;
+    
+    if (!hasMetrics && !hasDimensions) {
+        throw new Error('O relatório deve ter pelo menos uma métrica (soma ou contagem) ou pelo menos uma coluna (dimensão) para exibir dados.');
+    }
+
+    // REGRA 2: Métricas agregadas requerem agrupamento (dimensions)
+    if (hasMetrics && !hasDimensions) {
+        throw new Error('Métricas agregadas (SUM/COUNT) requerem pelo menos uma dimensão para agrupamento. Selecione uma ou mais colunas para agrupar os dados.');
+    }
+
     // Validar dimensões
     if (config.dimensions) {
         for (const dim of config.dimensions) {
@@ -806,10 +923,10 @@ function validateReportConfig(table: ReportSourceTable, config: ReportConfig): v
                 throw new Error(`Campo não permitido na métrica: ${metric.field}`);
             }
             if (metric.operation === 'SUM' && !isNumericField(table, metric.field)) {
-                throw new Error(`Campo ${metric.field} não pode ser usado em SUM`);
+                throw new Error(`Campo ${metric.field} não pode ser usado em SUM. Apenas campos numéricos podem ser somados.`);
             }
             if (metric.operation !== 'SUM' && metric.operation !== 'COUNT') {
-                throw new Error(`Operação não permitida: ${metric.operation}`);
+                throw new Error(`Operação não permitida: ${metric.operation}. Use apenas SUM ou COUNT.`);
             }
         }
     }
@@ -850,27 +967,72 @@ function validateReportConfig(table: ReportSourceTable, config: ReportConfig): v
         }
     }
 
-    // Validar ordenação
+    // REGRA 3: Validar ordenação - só pode ordenar por métricas ou dimensões selecionadas
     if (config.sort) {
+        const availableFieldsForSort: string[] = [];
+        
+        // Adicionar dimensões disponíveis
+        if (config.dimensions) {
+            config.dimensions.forEach(dim => {
+                availableFieldsForSort.push(dim.field);
+            });
+        }
+        
+        // Adicionar métricas disponíveis (usando alias se existir, senão o campo)
+        if (config.metrics) {
+            config.metrics.forEach(metric => {
+                // Para métricas agregadas, usar o alias ou o campo
+                availableFieldsForSort.push(metric.alias || metric.field);
+            });
+        }
+
         for (const s of config.sort) {
-            // Verificar se é campo de tabela relacionada
+            // Verificar se o campo de ordenação está nas dimensões ou métricas selecionadas
+            const isValidSortField = availableFieldsForSort.includes(s.field) ||
+                config.dimensions?.some(d => d.field === s.field) ||
+                config.metrics?.some(m => (m.alias || m.field) === s.field);
+
+            if (!isValidSortField) {
+                const dimensionFields = config.dimensions?.map(d => d.field).join(', ') || 'nenhuma';
+                const metricFields = config.metrics?.map(m => m.alias || m.field).join(', ') || 'nenhuma';
+                throw new Error(
+                    `Campo de ordenação inválido: "${s.field}". ` +
+                    `Você só pode ordenar por dimensões selecionadas (${dimensionFields}) ou métricas (${metricFields}).`
+                );
+            }
+
+            // Validar se o campo existe na tabela (validação de segurança)
             const parts = s.field.split('.');
             if (parts.length === 2) {
                 const [relationshipKey, field] = parts;
-                // Obter o alias da tabela relacionada
                 const relatedTableAlias = getRelatedTableAlias(table, relationshipKey);
                 if (!relatedTableAlias) {
                     throw new Error(`Relacionamento não encontrado na ordenação: ${relationshipKey}`);
                 }
-                // Validar usando o alias da tabela relacionada
                 if (!isRelatedFieldAllowed(relatedTableAlias, field)) {
                     throw new Error(`Campo não permitido na ordenação: ${relatedTableAlias}.${field}`);
                 }
             } else {
-                // Campo da tabela principal
-                if (!isFieldAllowed(table, s.field)) {
-                    throw new Error(`Campo não permitido na ordenação: ${s.field}`);
+                // Campo da tabela principal - verificar se está nas dimensões ou métricas
+                const isDimension = config.dimensions?.some(d => d.field === s.field);
+                const isMetric = config.metrics?.some(m => m.field === s.field);
+                
+                if (!isDimension && !isMetric) {
+                    if (!isFieldAllowed(table, s.field)) {
+                        throw new Error(`Campo não permitido na ordenação: ${s.field}`);
+                    }
                 }
+            }
+        }
+
+        // REGRA 4: Limite requerido quando ordenando por métrica agregada
+        if (config.sort.length > 0 && config.metrics && config.metrics.length > 0) {
+            const sortingByMetric = config.sort.some(s => 
+                config.metrics?.some(m => (m.alias || m.field) === s.field)
+            );
+            
+            if (sortingByMetric && (!config.limit || config.limit <= 0)) {
+                throw new Error('Quando ordenar por uma métrica agregada, você deve definir um limite de resultados (ex: 10, 50, 100).');
             }
         }
     }
@@ -926,6 +1088,7 @@ export async function getReportById(id: number): Promise<Report | null> {
         visualizationType: row.visualization_type,
         configJson: parseConfigJson(row.config_json),
         createdBy: row.created_by,
+        isPublic: Boolean(row.is_public),
         createdAt: row.created_at,
         updatedAt: row.updated_at,
     };
@@ -946,6 +1109,31 @@ export async function getAllReports(): Promise<Report[]> {
         visualizationType: row.visualization_type,
         configJson: parseConfigJson(row.config_json),
         createdBy: row.created_by,
+        isPublic: Boolean(row.is_public),
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+    }));
+}
+
+/**
+ * Lista relatórios disponíveis para um usuário (públicos ou do próprio usuário)
+ */
+export async function getAvailableReportsForUser(userId: number): Promise<Report[]> {
+    const results = await query(
+        `SELECT * FROM reports 
+         WHERE is_public = TRUE OR created_by = ?
+         ORDER BY created_at DESC`,
+        [userId]
+    ) as any[];
+
+    return results.map(row => ({
+        id: row.id,
+        name: row.name,
+        sourceTable: row.source_table,
+        visualizationType: row.visualization_type,
+        configJson: parseConfigJson(row.config_json),
+        createdBy: row.created_by,
+        isPublic: Boolean(row.is_public),
         createdAt: row.created_at,
         updatedAt: row.updated_at,
     }));
@@ -984,7 +1172,8 @@ export async function deleteReport(id: number): Promise<void> {
  * Cria um widget no dashboard
  */
 export async function createDashboardWidget(
-    dto: CreateDashboardWidgetDto
+    dto: CreateDashboardWidgetDto,
+    userId: number
 ): Promise<DashboardWidget> {
     // Verificar se o relatório existe
     const report = await getReportById(dto.reportId);
@@ -992,19 +1181,29 @@ export async function createDashboardWidget(
         throw new Error('Relatório não encontrado');
     }
 
-    // Se não especificou posição, usar a próxima disponível
+    // Verificar se o relatório é público ou pertence ao usuário
+    if (!report.isPublic && report.createdBy !== userId) {
+        throw new Error('Você não tem permissão para adicionar este relatório ao dashboard');
+    }
+
+    // Se não especificou posição, usar a próxima disponível para este usuário
     let position = dto.position;
     if (position === undefined) {
         const maxPos = await query(
-            `SELECT COALESCE(MAX(position), -1) + 1 AS next_position FROM dashboard_widgets`
+            `SELECT COALESCE(MAX(position), -1) + 1 AS next_position 
+             FROM dashboard_widgets 
+             WHERE user_id = ?`,
+            [userId]
         ) as any[];
         position = maxPos[0]?.next_position || 0;
     }
 
+    const expanded = dto.expanded !== undefined ? dto.expanded : 0;
+
     const result = await query(
-        `INSERT INTO dashboard_widgets (report_id, position, active)
-         VALUES (?, ?, TRUE)`,
-        [dto.reportId, position]
+        `INSERT INTO dashboard_widgets (user_id, report_id, position, expanded, active)
+         VALUES (?, ?, ?, ?, TRUE)`,
+        [userId, dto.reportId, position, expanded]
     ) as any;
 
     const createdWidget = await getDashboardWidgetById(result.insertId);
@@ -1019,7 +1218,24 @@ export async function createDashboardWidget(
  */
 export async function getDashboardWidgetById(id: number): Promise<DashboardWidget | null> {
     const results = await query(
-        `SELECT w.*, r.*
+        `SELECT 
+            w.id AS widget_id,
+            w.user_id,
+            w.report_id,
+            w.position,
+            w.expanded,
+            w.active,
+            w.created_at AS widget_created_at,
+            w.updated_at AS widget_updated_at,
+            r.id AS report_id,
+            r.name AS report_name,
+            r.source_table,
+            r.visualization_type,
+            r.config_json,
+            r.created_by,
+            r.is_public,
+            r.created_at AS report_created_at,
+            r.updated_at AS report_updated_at
          FROM dashboard_widgets w
          INNER JOIN reports r ON w.report_id = r.id
          WHERE w.id = ?`,
@@ -1032,53 +1248,77 @@ export async function getDashboardWidgetById(id: number): Promise<DashboardWidge
 
     const row = results[0];
     return {
-        id: row.id,
+        id: row.widget_id,
+        userId: row.user_id,
         reportId: row.report_id,
         position: row.position,
+        expanded: row.expanded !== null && row.expanded !== undefined ? row.expanded : 0,
         active: Boolean(row.active),
-        createdAt: row.created_at,
-        updatedAt: row.updated_at,
+        createdAt: row.widget_created_at,
+        updatedAt: row.widget_updated_at,
         report: {
             id: row.report_id,
-            name: row.name,
+            name: row.report_name,
             sourceTable: row.source_table,
             visualizationType: row.visualization_type,
             configJson: parseConfigJson(row.config_json),
             createdBy: row.created_by,
-            createdAt: row.created_at,
-            updatedAt: row.updated_at,
+            isPublic: Boolean(row.is_public),
+            createdAt: row.report_created_at,
+            updatedAt: row.report_updated_at,
         },
     };
 }
 
 /**
- * Lista todos os widgets ativos do dashboard
+ * Lista todos os widgets ativos do dashboard de um usuário
  */
-export async function getActiveDashboardWidgets(): Promise<DashboardWidget[]> {
+export async function getActiveDashboardWidgets(userId: number): Promise<DashboardWidget[]> {
     const results = await query(
-        `SELECT w.*, r.*
+        `SELECT 
+            w.id AS widget_id,
+            w.user_id,
+            w.report_id,
+            w.position,
+            w.expanded,
+            w.active,
+            w.created_at AS widget_created_at,
+            w.updated_at AS widget_updated_at,
+            r.id AS report_id,
+            r.name AS report_name,
+            r.source_table,
+            r.visualization_type,
+            r.config_json,
+            r.created_by,
+            r.is_public,
+            r.created_at AS report_created_at,
+            r.updated_at AS report_updated_at
          FROM dashboard_widgets w
          INNER JOIN reports r ON w.report_id = r.id
-         WHERE w.active = TRUE
-         ORDER BY w.position ASC`
+         WHERE w.active = TRUE AND w.user_id = ?
+         ORDER BY w.position ASC`,
+        [userId]
     ) as any[];
 
     return results.map(row => ({
-        id: row.id,
+        id: row.widget_id,
+        userId: row.user_id,
         reportId: row.report_id,
         position: row.position,
+        expanded: row.expanded !== null && row.expanded !== undefined ? row.expanded : 0,
         active: Boolean(row.active),
-        createdAt: row.created_at,
-        updatedAt: row.updated_at,
+        createdAt: row.widget_created_at,
+        updatedAt: row.widget_updated_at,
         report: {
             id: row.report_id,
-            name: row.name,
+            name: row.report_name,
             sourceTable: row.source_table,
             visualizationType: row.visualization_type,
             configJson: parseConfigJson(row.config_json),
             createdBy: row.created_by,
-            createdAt: row.created_at,
-            updatedAt: row.updated_at,
+            isPublic: Boolean(row.is_public),
+            createdAt: row.report_created_at,
+            updatedAt: row.report_updated_at,
         },
     }));
 }
@@ -1088,8 +1328,19 @@ export async function getActiveDashboardWidgets(): Promise<DashboardWidget[]> {
  */
 export async function updateDashboardWidget(
     id: number,
-    dto: UpdateDashboardWidgetDto
+    dto: UpdateDashboardWidgetDto,
+    userId: number
 ): Promise<DashboardWidget> {
+    // Verificar se o widget existe e pertence ao usuário
+    const existingWidget = await getDashboardWidgetById(id);
+    if (!existingWidget) {
+        throw new Error('Widget não encontrado');
+    }
+
+    if (existingWidget.userId !== userId) {
+        throw new Error('Você não tem permissão para atualizar este widget');
+    }
+
     const updates: string[] = [];
     const params: any[] = [];
 
@@ -1098,22 +1349,23 @@ export async function updateDashboardWidget(
         params.push(dto.position);
     }
 
+    if (dto.expanded !== undefined) {
+        updates.push('expanded = ?');
+        params.push(dto.expanded);
+    }
+
     if (dto.active !== undefined) {
         updates.push('active = ?');
         params.push(dto.active ? 1 : 0);
     }
 
     if (updates.length === 0) {
-        const existingWidget = await getDashboardWidgetById(id);
-        if (!existingWidget) {
-            throw new Error('Widget não encontrado');
-        }
         return existingWidget;
     }
 
-    params.push(id);
+    params.push(id, userId);
     await query(
-        `UPDATE dashboard_widgets SET ${updates.join(', ')} WHERE id = ?`,
+        `UPDATE dashboard_widgets SET ${updates.join(', ')} WHERE id = ? AND user_id = ?`,
         params
     );
 
@@ -1127,21 +1379,26 @@ export async function updateDashboardWidget(
 /**
  * Deleta um widget
  */
-export async function deleteDashboardWidget(id: number): Promise<void> {
-    // Verificar se o widget existe antes de deletar
+export async function deleteDashboardWidget(id: number, userId: number): Promise<void> {
+    // Verificar se o widget existe e pertence ao usuário antes de deletar
     const widget = await getDashboardWidgetById(id);
     if (!widget) {
         throw new Error('Widget não encontrado');
     }
 
-    console.log(`[deleteDashboardWidget] Deletando widget ID: ${id}, Report ID: ${widget.reportId}`);
+    // Verificar se o widget pertence ao usuário
+    if (widget.userId !== userId) {
+        throw new Error('Você não tem permissão para deletar este widget');
+    }
+
+    console.log(`[deleteDashboardWidget] Deletando widget ID: ${id}, Report ID: ${widget.reportId}, User ID: ${userId}`);
 
     // Usar pool.execute diretamente para obter o ResultSetHeader correto
     const connection = await pool.getConnection();
     try {
         const [result] = await connection.execute(
-            `DELETE FROM dashboard_widgets WHERE id = ?`,
-            [id]
+            `DELETE FROM dashboard_widgets WHERE id = ? AND user_id = ?`,
+            [id, userId]
         ) as any;
         
         console.log(`[deleteDashboardWidget] Resultado completo:`, result);
@@ -1155,8 +1412,8 @@ export async function deleteDashboardWidget(id: number): Promise<void> {
         if (affectedRows === 0) {
             // Verificar se o widget ainda existe (pode ser que tenha sido deletado por outra operação)
             const [verifyResult] = await connection.execute(
-                `SELECT id FROM dashboard_widgets WHERE id = ?`,
-                [id]
+                `SELECT id FROM dashboard_widgets WHERE id = ? AND user_id = ?`,
+                [id, userId]
             ) as any;
             
             if (Array.isArray(verifyResult) && verifyResult.length > 0) {
@@ -1169,8 +1426,8 @@ export async function deleteDashboardWidget(id: number): Promise<void> {
 
         // Verificar se realmente foi deletado
         const [verifyDeleted] = await connection.execute(
-            `SELECT id FROM dashboard_widgets WHERE id = ?`,
-            [id]
+            `SELECT id FROM dashboard_widgets WHERE id = ? AND user_id = ?`,
+            [id, userId]
         ) as any;
         
         if (Array.isArray(verifyDeleted) && verifyDeleted.length > 0) {
@@ -1219,6 +1476,7 @@ export const reportService = {
     updateReport,
     getReportById,
     getAllReports,
+    getAvailableReportsForUser,
     deleteReport,
     executeReport,
     executeReportConfig,

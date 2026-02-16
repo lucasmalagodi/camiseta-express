@@ -33,8 +33,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Trash2, Package, Image, DollarSign, Pencil, RotateCcw, ArrowUp, ArrowDown, Star } from "lucide-react";
-import { productService, categoryService, productImageService, productPriceService } from "@/services/api";
+import { Plus, Trash2, Package, Image, DollarSign, Pencil, RotateCcw, ArrowUp, ArrowDown, Star, Shirt } from "lucide-react";
+import { productService, categoryService, productImageService, productPriceService, productVariantService } from "@/services/api";
 import { toast } from "sonner";
 import { formatPoints } from "@/lib/utils";
 
@@ -65,6 +65,7 @@ const ProductDialog = ({
   const [activeTab, setActiveTab] = useState("product");
   const [images, setImages] = useState<any[]>([]);
   const [prices, setPrices] = useState<any[]>([]);
+  const [variants, setVariants] = useState<any[]>([]);
   
   const [formData, setFormData] = useState({
     name: "",
@@ -88,6 +89,13 @@ const ProductDialog = ({
     quantidadeCompra: "0",
   });
   const [editingPriceId, setEditingPriceId] = useState<number | null>(null);
+
+  const [variantForm, setVariantForm] = useState({
+    model: "" as 'MASCULINO' | 'FEMININO' | 'UNISEX' | '',
+    size: "",
+    stock: "0",
+  });
+  const [editingVariantId, setEditingVariantId] = useState<number | null>(null);
 
   const loadCategories = async () => {
     try {
@@ -170,8 +178,10 @@ const ProductDialog = ({
         setActiveTab("product");
         setImages([]);
         setPrices([]);
+        setVariants([]);
         setImageForm({ path: "", name: "" });
         setPriceForm({ value: "", batch: "", quantidadeCompra: "0" });
+        setVariantForm({ model: "", size: "", stock: "0" });
         setSelectedFile(null);
         setSelectedFiles([]);
         setIsLoading(false);
@@ -185,15 +195,18 @@ const ProductDialog = ({
         categoryId: "",
         quantity: "0",
       });
-      setImages([]);
-      setPrices([]);
-      setActiveTab("product");
-      setEditingImageId(null);
-      setEditingPriceId(null);
-      setImageForm({ path: "", name: "" });
-      setPriceForm({ value: "", batch: "", quantidadeCompra: "0" });
-      setSelectedFile(null);
-      setSelectedFiles([]);
+        setImages([]);
+        setPrices([]);
+        setVariants([]);
+        setActiveTab("product");
+        setEditingImageId(null);
+        setEditingPriceId(null);
+        setEditingVariantId(null);
+        setImageForm({ path: "", name: "" });
+        setPriceForm({ value: "", batch: "", quantidadeCompra: "0" });
+        setVariantForm({ model: "", size: "", stock: "0" });
+        setSelectedFile(null);
+        setSelectedFiles([]);
     }
   }, [open, initialProductId]);
 
@@ -201,6 +214,7 @@ const ProductDialog = ({
     if (productId && open) {
       loadImages();
       loadPrices();
+      loadVariants();
     }
   }, [productId, activeTab, open]);
 
@@ -232,6 +246,32 @@ const ProductDialog = ({
     }
   };
 
+  const loadVariants = async () => {
+    if (!productId) return;
+    try {
+      const data = await productVariantService.getAll(productId);
+      setVariants(Array.isArray(data) ? data : []);
+      
+      // Calcular quantidade total baseada nas variações ativas
+      const totalQuantity = data
+        .filter((v: any) => v.active)
+        .reduce((sum: number, v: any) => sum + (Number(v.stock) || 0), 0);
+      
+      // Atualizar quantidade no formData
+      setFormData(prev => ({ ...prev, quantity: totalQuantity.toString() }));
+    } catch (error) {
+      console.error("Erro ao carregar variações:", error);
+      setVariants([]);
+    }
+  };
+
+  // Calcular quantidade total baseada nas variações
+  const calculateTotalQuantity = () => {
+    return variants
+      .filter(v => v.active)
+      .reduce((sum, v) => sum + (Number(v.stock) || 0), 0);
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
@@ -250,11 +290,16 @@ const ProductDialog = ({
       
       if (productId) {
         // Modo de edição - atualizar produto existente
+        // Se tem variações, calcular quantidade automaticamente
+        const quantityToUse = variants.length > 0 
+          ? calculateTotalQuantity()
+          : parseInt(formData.quantity) || 0;
+        
         await productService.update(productId, {
           name: formData.name,
           description: formData.description,
           categoryId: parseInt(formData.categoryId),
-          quantity: parseInt(formData.quantity) || 0,
+          quantity: quantityToUse,
         });
         toast.success("Produto atualizado com sucesso!");
         onProductChange?.();
@@ -584,6 +629,99 @@ const ProductDialog = ({
     }
   };
 
+  const handleEditVariant = (variant: any) => {
+    setEditingVariantId(variant.id);
+    setVariantForm({
+      model: variant.model,
+      size: variant.size,
+      stock: variant.stock.toString(),
+    });
+  };
+
+  const handleCancelEditVariant = () => {
+    setEditingVariantId(null);
+    setVariantForm({ model: "", size: "", stock: "0" });
+  };
+
+  const handleAddVariant = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!productId) {
+      toast.error("Crie o produto primeiro");
+      return;
+    }
+
+    if (!variantForm.model || !variantForm.size || !variantForm.stock) {
+      toast.error("Preencha todos os campos obrigatórios");
+      return;
+    }
+
+    try {
+      if (editingVariantId) {
+        // Modo de edição
+        await productVariantService.update(productId, editingVariantId, {
+          model: variantForm.model as 'MASCULINO' | 'FEMININO' | 'UNISEX',
+          size: variantForm.size,
+          stock: parseInt(variantForm.stock) || 0,
+        });
+        toast.success("Variação atualizada com sucesso!");
+        handleCancelEditVariant();
+      } else {
+        // Modo de criação
+        await productVariantService.create(productId, {
+          model: variantForm.model as 'MASCULINO' | 'FEMININO' | 'UNISEX',
+          size: variantForm.size,
+          stock: parseInt(variantForm.stock) || 0,
+        });
+        toast.success("Variação adicionada com sucesso!");
+        setVariantForm({ model: "", size: "", stock: "0" });
+      }
+      await loadVariants();
+      
+      // Atualizar quantidade do produto após salvar variação
+      const totalQuantity = calculateTotalQuantity();
+      if (productId) {
+        await productService.update(productId, { quantity: totalQuantity });
+      }
+    } catch (error: any) {
+      toast.error(error.message || "Erro ao salvar variação");
+      console.error(error);
+    }
+  };
+
+  const handleDeleteVariant = async (variantId: number) => {
+    if (!productId) return;
+    if (!confirm("Tem certeza que deseja desativar esta variação?")) return;
+
+    try {
+      await productVariantService.delete(productId, variantId);
+      toast.success("Variação desativada com sucesso!");
+      await loadVariants();
+      
+      // Atualizar quantidade do produto após desativar variação
+      const totalQuantity = calculateTotalQuantity();
+      await productService.update(productId, { quantity: totalQuantity });
+    } catch (error: any) {
+      toast.error("Erro ao desativar variação");
+      console.error(error);
+    }
+  };
+
+  const handleActivateVariant = async (variantId: number) => {
+    if (!productId) return;
+    try {
+      await productVariantService.update(productId, variantId, { active: true });
+      toast.success("Variação ativada com sucesso!");
+      await loadVariants();
+      
+      // Atualizar quantidade do produto após ativar variação
+      const totalQuantity = calculateTotalQuantity();
+      await productService.update(productId, { quantity: totalQuantity });
+    } catch (error: any) {
+      toast.error("Erro ao ativar variação");
+      console.error(error);
+    }
+  };
+
   const handleClose = () => {
     if (productId) {
       onProductChange?.();
@@ -620,7 +758,7 @@ const ProductDialog = ({
           </div>
         ) : (
           <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <TabsList className="grid w-full grid-cols-3">
+          <TabsList className="grid w-full grid-cols-4">
             <TabsTrigger value="product" className="flex items-center gap-2">
               <Package className="w-4 h-4" />
               Produto
@@ -628,6 +766,10 @@ const ProductDialog = ({
             <TabsTrigger value="images" disabled={!productId} className="flex items-center gap-2">
               <Image className="w-4 h-4" />
               Imagens
+            </TabsTrigger>
+            <TabsTrigger value="variants" disabled={!productId} className="flex items-center gap-2">
+              <Shirt className="w-4 h-4" />
+              Modelos e Tamanhos
             </TabsTrigger>
             <TabsTrigger value="prices" disabled={!productId} className="flex items-center gap-2">
               <DollarSign className="w-4 h-4" />
@@ -723,18 +865,31 @@ const ProductDialog = ({
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="product-quantity">Quantidade</Label>
+                <Label htmlFor="product-quantity">
+                  Quantidade Total
+                  {productId && variants.length > 0 && (
+                    <span className="text-xs text-muted-foreground ml-2">
+                      (calculada automaticamente pelas variações)
+                    </span>
+                  )}
+                </Label>
                 <Input
                   id="product-quantity"
                   type="number"
                   min="0"
                   placeholder="0"
-                  value={formData.quantity}
+                  value={productId && variants.length > 0 ? calculateTotalQuantity().toString() : formData.quantity}
                   onChange={(e) =>
                     setFormData({ ...formData, quantity: e.target.value })
                   }
-                  disabled={isLoading}
+                  disabled={isLoading || (productId && variants.length > 0)}
+                  className={productId && variants.length > 0 ? "bg-muted cursor-not-allowed" : ""}
                 />
+                {productId && variants.length > 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    A quantidade é calculada automaticamente pela soma do estoque de todas as variações ativas.
+                  </p>
+                )}
               </div>
 
               <div className="flex justify-end gap-2">
@@ -1034,6 +1189,170 @@ const ProductDialog = ({
                                     handleActivateImage(image.id);
                                   }}
                                   title="Ativar imagem"
+                                >
+                                  <RotateCcw className="w-4 h-4 text-green-600" />
+                                </Button>
+                              )}
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                )}
+              </div>
+            </div>
+          </TabsContent>
+
+          {/* Tab: Modelos e Tamanhos */}
+          <TabsContent value="variants" className="space-y-4">
+            <div className="space-y-4">
+              <div>
+                <h3 className="text-lg font-semibold mb-2">
+                  {editingVariantId ? "Editar Variação" : "Adicionar Variação"}
+                </h3>
+                <form onSubmit={handleAddVariant} className="space-y-4">
+                  <div className="grid grid-cols-3 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="variant-model">Modelo *</Label>
+                      <Select
+                        value={variantForm.model}
+                        onValueChange={(value) =>
+                          setVariantForm({ ...variantForm, model: value as 'MASCULINO' | 'FEMININO' | 'UNISEX' })
+                        }
+                        required
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Selecione o modelo" />
+                        </SelectTrigger>
+                        <SelectContent className="z-[101]" position="popper">
+                          <SelectItem value="MASCULINO">Masculino</SelectItem>
+                          <SelectItem value="FEMININO">Feminino</SelectItem>
+                          <SelectItem value="UNISEX">Unisex</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="variant-size">Tamanho *</Label>
+                      <Input
+                        id="variant-size"
+                        placeholder="Ex: P, M, G, GG"
+                        value={variantForm.size}
+                        onChange={(e) =>
+                          setVariantForm({ ...variantForm, size: e.target.value })
+                        }
+                        required
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="variant-stock">Estoque *</Label>
+                      <Input
+                        id="variant-stock"
+                        type="number"
+                        min="0"
+                        placeholder="0"
+                        value={variantForm.stock}
+                        onChange={(e) =>
+                          setVariantForm({ ...variantForm, stock: e.target.value })
+                        }
+                        required
+                      />
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button type="submit" size="sm">
+                      {editingVariantId ? (
+                        <>
+                          <Pencil className="w-4 h-4 mr-2" />
+                          Atualizar Variação
+                        </>
+                      ) : (
+                        <>
+                          <Plus className="w-4 h-4 mr-2" />
+                          Adicionar Variação
+                        </>
+                      )}
+                    </Button>
+                    {editingVariantId && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={handleCancelEditVariant}
+                      >
+                        Cancelar
+                      </Button>
+                    )}
+                  </div>
+                </form>
+              </div>
+
+              <div>
+                <h3 className="text-lg font-semibold mb-2">Variações Cadastradas</h3>
+                {variants.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">Nenhuma variação cadastrada</p>
+                ) : (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>ID</TableHead>
+                        <TableHead>Modelo</TableHead>
+                        <TableHead>Tamanho</TableHead>
+                        <TableHead>Estoque</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead className="text-right">Ações</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {variants.map((variant) => (
+                        <TableRow 
+                          key={variant.id}
+                          className={editingVariantId === variant.id ? "bg-muted" : "cursor-pointer hover:bg-muted/50"}
+                          onClick={() => variant.active && handleEditVariant(variant)}
+                        >
+                          <TableCell className="font-medium">{variant.id}</TableCell>
+                          <TableCell>{variant.model}</TableCell>
+                          <TableCell>{variant.size}</TableCell>
+                          <TableCell>{variant.stock}</TableCell>
+                          <TableCell>
+                            <Badge variant={variant.active ? "default" : "secondary"}>
+                              {variant.active ? "Ativa" : "Inativa"}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <div className="flex items-center justify-end gap-1">
+                              {variant.active ? (
+                                <>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleEditVariant(variant);
+                                    }}
+                                  >
+                                    <Pencil className="w-4 h-4" />
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleDeleteVariant(variant.id);
+                                    }}
+                                  >
+                                    <Trash2 className="w-4 h-4 text-destructive" />
+                                  </Button>
+                                </>
+                              ) : (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleActivateVariant(variant.id);
+                                  }}
+                                  title="Ativar variação"
                                 >
                                   <RotateCcw className="w-4 h-4 text-green-600" />
                                 </Button>

@@ -51,7 +51,7 @@ exports.ticketController = {
             if (error instanceof zod_1.z.ZodError) {
                 return res.status(400).json({
                     message: 'Dados inválidos',
-                    errors: error.errors
+                    errors: error.issues
                 });
             }
             console.error('Erro ao criar ticket:', error);
@@ -78,7 +78,8 @@ exports.ticketController = {
             if (!req.agency) {
                 return res.status(401).json({ message: 'Não autorizado' });
             }
-            const ticketId = parseInt(req.params.id);
+            const idParam = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+            const ticketId = parseInt(idParam);
             if (isNaN(ticketId)) {
                 return res.status(400).json({ message: 'ID inválido' });
             }
@@ -99,7 +100,8 @@ exports.ticketController = {
             if (!req.agency) {
                 return res.status(401).json({ message: 'Não autorizado' });
             }
-            const ticketId = parseInt(req.params.id);
+            const idParam = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+            const ticketId = parseInt(idParam);
             if (isNaN(ticketId)) {
                 return res.status(400).json({ message: 'ID inválido' });
             }
@@ -120,7 +122,8 @@ exports.ticketController = {
             if (!req.agency) {
                 return res.status(401).json({ message: 'Não autorizado' });
             }
-            const ticketId = parseInt(req.params.id);
+            const idParam = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+            const ticketId = parseInt(idParam);
             if (isNaN(ticketId)) {
                 return res.status(400).json({ message: 'ID inválido' });
             }
@@ -145,7 +148,7 @@ exports.ticketController = {
             if (error instanceof zod_1.z.ZodError) {
                 return res.status(400).json({
                     message: 'Dados inválidos',
-                    errors: error.errors
+                    errors: error.issues
                 });
             }
             console.error('Erro ao adicionar mensagem:', error);
@@ -183,7 +186,8 @@ exports.ticketController = {
             if (!req.user || req.user.role !== 'admin') {
                 return res.status(403).json({ message: 'Acesso negado' });
             }
-            const ticketId = parseInt(req.params.id);
+            const idParam = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+            const ticketId = parseInt(idParam);
             if (isNaN(ticketId)) {
                 return res.status(400).json({ message: 'ID inválido' });
             }
@@ -204,7 +208,8 @@ exports.ticketController = {
             if (!req.user || req.user.role !== 'admin') {
                 return res.status(403).json({ message: 'Acesso negado' });
             }
-            const ticketId = parseInt(req.params.id);
+            const idParam = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+            const ticketId = parseInt(idParam);
             if (isNaN(ticketId)) {
                 return res.status(400).json({ message: 'ID inválido' });
             }
@@ -225,7 +230,8 @@ exports.ticketController = {
             if (!req.user || req.user.role !== 'admin') {
                 return res.status(403).json({ message: 'Acesso negado' });
             }
-            const ticketId = parseInt(req.params.id);
+            const idParam = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+            const ticketId = parseInt(idParam);
             if (isNaN(ticketId)) {
                 return res.status(400).json({ message: 'ID inválido' });
             }
@@ -258,7 +264,7 @@ exports.ticketController = {
             if (error instanceof zod_1.z.ZodError) {
                 return res.status(400).json({
                     message: 'Dados inválidos',
-                    errors: error.errors
+                    errors: error.issues
                 });
             }
             console.error('Erro ao adicionar mensagem:', error);
@@ -274,7 +280,8 @@ exports.ticketController = {
             if (!req.user || req.user.role !== 'admin') {
                 return res.status(403).json({ message: 'Acesso negado' });
             }
-            const ticketId = parseInt(req.params.id);
+            const idParam = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+            const ticketId = parseInt(idParam);
             if (isNaN(ticketId)) {
                 return res.status(400).json({ message: 'ID inválido' });
             }

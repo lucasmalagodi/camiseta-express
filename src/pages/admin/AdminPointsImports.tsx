@@ -25,6 +25,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { useTableSort } from "@/hooks/useTableSort";
 
 interface PointsImport {
   id: number;
@@ -61,6 +62,8 @@ const AdminPointsImports = () => {
   const [allLogs, setAllLogs] = useState<any[]>([]); // Armazena todos os logs
   const [isLoadingLogs, setIsLoadingLogs] = useState(false);
   const [searchKeyword, setSearchKeyword] = useState<string>('');
+  
+  const { sortedData, handleSort, getSortIcon } = useTableSort(imports);
 
   const loadImports = async () => {
     try {
@@ -390,16 +393,36 @@ const AdminPointsImports = () => {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Período</TableHead>
-                  <TableHead>Status</TableHead>
+                  <TableHead 
+                    className="cursor-pointer hover:bg-muted/50 select-none"
+                    onClick={() => handleSort("referencePeriod")}
+                  >
+                    Período{getSortIcon("referencePeriod")}
+                  </TableHead>
+                  <TableHead 
+                    className="cursor-pointer hover:bg-muted/50 select-none"
+                    onClick={() => handleSort("status")}
+                  >
+                    Status{getSortIcon("status")}
+                  </TableHead>
                   <TableHead>Progresso</TableHead>
-                  <TableHead>Uploadado em</TableHead>
-                  <TableHead>Uploadado por</TableHead>
+                  <TableHead 
+                    className="cursor-pointer hover:bg-muted/50 select-none"
+                    onClick={() => handleSort("uploadedAt")}
+                  >
+                    Uploadado em{getSortIcon("uploadedAt")}
+                  </TableHead>
+                  <TableHead 
+                    className="cursor-pointer hover:bg-muted/50 select-none"
+                    onClick={() => handleSort("uploadedBy")}
+                  >
+                    Uploadado por{getSortIcon("uploadedBy")}
+                  </TableHead>
                   <TableHead className="text-right">Ações</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {imports.map((importItem) => {
+                {sortedData.map((importItem) => {
                   const isProcessing = importItem.id === currentImportId && importStatus;
                   const statusLabel = {
                     'PENDING': 'Pendente',

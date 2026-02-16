@@ -6,7 +6,7 @@ import { Minus, Plus, Trash2, ShoppingBag, ArrowLeft, Loader2 } from "lucide-rea
 import { orderService } from "@/services/api";
 import { useState } from "react";
 import { toast } from "sonner";
-import { formatPoints } from "@/lib/utils";
+import { formatPoints, formatModelName } from "@/lib/utils";
 
 const Cart = () => {
   const { items, updateQuantity, removeItem, totalPrice, totalItems, clearCart } =
@@ -30,10 +30,11 @@ const Cart = () => {
     setIsProcessing(true);
 
     try {
-      // Preparar itens para o checkout (apenas productId e quantity)
+      // Preparar itens para o checkout (incluindo variantId se existir)
       const checkoutItems = items.map(item => ({
         productId: item.id,
-        quantity: item.quantity
+        quantity: item.quantity,
+        variantId: item.variantId
       }));
 
       const result = await orderService.create(agency.id, checkoutItems);
@@ -126,6 +127,11 @@ const Cart = () => {
                         <h3 className="font-semibold text-lg text-foreground">
                           {item.name}
                         </h3>
+                        {item.variantInfo && (
+                          <p className="text-sm text-muted-foreground mt-1">
+                            {formatModelName(item.variantInfo.model)} - {item.variantInfo.size}
+                          </p>
+                        )}
                         {item.lotDistribution && item.lotDistribution.length > 0 ? (
                           <div className="mt-2 space-y-1">
                             {item.lotDistribution.map((lot, idx) => (

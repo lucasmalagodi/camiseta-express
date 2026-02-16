@@ -4,18 +4,25 @@ exports.productController = void 0;
 const zod_1 = require("zod");
 const productService_1 = require("../services/productService");
 const categoryService_1 = require("../services/categoryService");
+const variantSchema = zod_1.z.object({
+    model: zod_1.z.enum(['MASCULINO', 'FEMININO', 'UNISEX']),
+    size: zod_1.z.string().min(1),
+    stock: zod_1.z.number().int().min(0)
+});
 const createProductSchema = zod_1.z.object({
     categoryId: zod_1.z.number().int().positive(),
     name: zod_1.z.string().min(1),
     description: zod_1.z.string(),
-    quantity: zod_1.z.number().int().min(0).optional()
+    quantity: zod_1.z.number().int().min(0).optional(),
+    variants: zod_1.z.array(variantSchema).optional()
 });
 const updateProductSchema = zod_1.z.object({
     categoryId: zod_1.z.number().int().positive().optional(),
     name: zod_1.z.string().min(1).optional(),
     description: zod_1.z.string().optional(),
     quantity: zod_1.z.number().int().min(0).optional(),
-    active: zod_1.z.boolean().optional()
+    active: zod_1.z.boolean().optional(),
+    variants: zod_1.z.array(variantSchema).optional()
 });
 exports.productController = {
     async create(req, res) {

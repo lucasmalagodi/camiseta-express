@@ -7,6 +7,7 @@ export interface HeroProduct {
     imageDesktop: string | null;
     imageMobile: string | null;
     externalUrl: string | null;
+    linkType: 'EXTERNAL_URL' | 'PRODUCTS_PAGE' | 'NONE' | null;
     displayOrder: number;
     displayDuration: number;
     active: boolean;
@@ -17,7 +18,8 @@ export interface HeroProduct {
 export interface CreateHeroProductDto {
     bannerType: 'PRODUCT' | 'EXTERNAL';
     productId?: number;
-    externalUrl?: string;
+    externalUrl?: string | null;
+    linkType?: 'EXTERNAL_URL' | 'PRODUCTS_PAGE' | 'NONE' | null;
     imageDesktop?: string;
     imageMobile?: string;
     displayOrder?: number;
@@ -29,6 +31,7 @@ export interface UpdateHeroProductDto {
     bannerType?: 'PRODUCT' | 'EXTERNAL';
     productId?: number | null;
     externalUrl?: string | null;
+    linkType?: 'EXTERNAL_URL' | 'PRODUCTS_PAGE' | 'NONE' | null;
     imageDesktop?: string;
     imageMobile?: string;
     displayOrder?: number;
@@ -57,11 +60,14 @@ export const heroProductService = {
                 throw new Error('Este produto já está em destaque');
             }
         } else if (data.bannerType === 'EXTERNAL') {
-            if (!data.externalUrl) {
-                throw new Error('externalUrl é obrigatório para banners do tipo EXTERNAL');
-            }
             if (data.productId) {
                 throw new Error('productId não pode ser definido para banners do tipo EXTERNAL');
+            }
+            
+            // Validar linkType e externalUrl
+            const linkType = data.linkType || 'NONE';
+            if (linkType === 'EXTERNAL_URL' && !data.externalUrl) {
+                throw new Error('externalUrl é obrigatório quando linkType é EXTERNAL_URL');
             }
         }
 
@@ -89,12 +95,13 @@ export const heroProductService = {
 
         if (data.bannerType === 'PRODUCT') {
             // Para PRODUCT, product_id é obrigatório
-            sql = 'INSERT INTO hero_products (banner_type, product_id, external_url, image_desktop, image_mobile, display_order, display_duration, active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, NOW(), NOW())';
-            values = [data.bannerType, data.productId, null, data.imageDesktop || null, data.imageMobile || null, displayOrder, displayDuration, active];
+            sql = 'INSERT INTO hero_products (banner_type, product_id, external_url, link_type, image_desktop, image_mobile, display_order, display_duration, active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())';
+            values = [data.bannerType, data.productId, null, null, data.imageDesktop || null, data.imageMobile || null, displayOrder, displayDuration, active];
         } else {
-            // Para EXTERNAL, product_id deve ser NULL (ou não incluído)
-            sql = 'INSERT INTO hero_products (banner_type, product_id, external_url, image_desktop, image_mobile, display_order, display_duration, active, created_at, updated_at) VALUES (?, NULL, ?, ?, ?, ?, ?, ?, NOW(), NOW())';
-            values = [data.bannerType, data.externalUrl, data.imageDesktop, data.imageMobile || null, displayOrder, displayDuration, active];
+            // Para EXTERNAL, product_id deve ser NULL
+            const linkType = data.linkType || 'NONE';
+            sql = 'INSERT INTO hero_products (banner_type, product_id, external_url, link_type, image_desktop, image_mobile, display_order, display_duration, active, created_at, updated_at) VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())';
+            values = [data.bannerType, data.externalUrl || null, linkType, data.imageDesktop, data.imageMobile || null, displayOrder, displayDuration, active];
         }
 
         const result = await query(sql, values) as any;
@@ -133,12 +140,16 @@ export const heroProductService = {
                 }
             }
         } else if (bannerType === 'EXTERNAL') {
-            const externalUrl = data.externalUrl !== undefined ? data.externalUrl : current.externalUrl;
-            if (!externalUrl) {
-                throw new Error('externalUrl é obrigatório para banners do tipo EXTERNAL');
-            }
             if (data.productId !== undefined && data.productId !== null) {
                 throw new Error('productId não pode ser definido para banners do tipo EXTERNAL');
+            }
+            
+            // Validar linkType e externalUrl
+            const linkType = data.linkType !== undefined ? data.linkType : ((current as any).linkType || 'NONE');
+            const externalUrl = data.externalUrl !== undefined ? data.externalUrl : current.externalUrl;
+            
+            if (linkType === 'EXTERNAL_URL' && !externalUrl) {
+                throw new Error('externalUrl é obrigatório quando linkType é EXTERNAL_URL');
             }
         }
 
@@ -153,9 +164,10 @@ export const heroProductService = {
             if (data.bannerType === 'EXTERNAL') {
                 updates.push('product_id = NULL');
             }
-            // Quando mudar para PRODUCT, garantir que external_url seja NULL
+            // Quando mudar para PRODUCT, garantir que external_url e link_type sejam NULL
             if (data.bannerType === 'PRODUCT') {
                 updates.push('external_url = NULL');
+                updates.push('link_type = NULL');
             }
         } else {
             // Se não está mudando o tipo, garantir consistência baseado no tipo atual
@@ -166,6 +178,10 @@ export const heroProductService = {
             if (bannerType === 'PRODUCT' && data.externalUrl === undefined) {
                 // Se for PRODUCT e não está atualizando externalUrl, garantir que seja NULL
                 updates.push('external_url = NULL');
+            }
+            if (bannerType === 'PRODUCT' && data.linkType === undefined) {
+                // Se for PRODUCT e não está atualizando linkType, garantir que seja NULL
+                updates.push('link_type = NULL');
             }
         }
 
@@ -186,6 +202,16 @@ export const heroProductService = {
             } else {
                 updates.push('external_url = ?');
                 values.push(data.externalUrl);
+            }
+        }
+
+        if (data.linkType !== undefined) {
+            if (bannerType === 'PRODUCT') {
+                // Para PRODUCT, link_type deve ser NULL
+                updates.push('link_type = NULL');
+            } else {
+                updates.push('link_type = ?');
+                values.push(data.linkType);
             }
         }
 
@@ -231,7 +257,7 @@ export const heroProductService = {
 
     async findById(id: number): Promise<HeroProduct | null> {
         const results = await query(
-            'SELECT id, banner_type as bannerType, product_id as productId, external_url as externalUrl, image_desktop as imageDesktop, image_mobile as imageMobile, display_order as displayOrder, display_duration as displayDuration, active, created_at as createdAt, updated_at as updatedAt FROM hero_products WHERE id = ?',
+            'SELECT id, banner_type as bannerType, product_id as productId, external_url as externalUrl, link_type as linkType, image_desktop as imageDesktop, image_mobile as imageMobile, display_order as displayOrder, display_duration as displayDuration, active, created_at as createdAt, updated_at as updatedAt FROM hero_products WHERE id = ?',
             [id]
         ) as HeroProduct[];
 
@@ -243,7 +269,7 @@ export const heroProductService = {
 
     async findAll(): Promise<HeroProduct[]> {
         const results = await query(
-            'SELECT id, banner_type as bannerType, product_id as productId, external_url as externalUrl, image_desktop as imageDesktop, image_mobile as imageMobile, display_order as displayOrder, display_duration as displayDuration, active, created_at as createdAt, updated_at as updatedAt FROM hero_products ORDER BY display_order ASC, created_at ASC'
+            'SELECT id, banner_type as bannerType, product_id as productId, external_url as externalUrl, link_type as linkType, image_desktop as imageDesktop, image_mobile as imageMobile, display_order as displayOrder, display_duration as displayDuration, active, created_at as createdAt, updated_at as updatedAt FROM hero_products ORDER BY display_order ASC, created_at ASC'
         ) as HeroProduct[];
 
         return Array.isArray(results) ? results : [];
@@ -283,6 +309,7 @@ export const heroProductService = {
                 hp.banner_type as bannerType,
                 hp.product_id as productId,
                 hp.external_url as externalUrl,
+                hp.link_type as linkType,
                 hp.image_desktop as imageDesktop,
                 hp.image_mobile as imageMobile,
                 hp.display_order as displayOrder,
@@ -302,11 +329,26 @@ export const heroProductService = {
 
         const result: any[] = [];
 
-        // Processar banners EXTERNAL (mais simples)
+        // Processar banners EXTERNAL
         for (const banner of externalBanners) {
             if (!banner.imageDesktop) {
                 continue; // Pular banners sem imagem desktop
             }
+
+            const linkType = banner.linkType || 'NONE';
+            let link: any = null;
+
+            if (linkType === 'EXTERNAL_URL' && banner.externalUrl) {
+                link = {
+                    type: 'EXTERNAL',
+                    url: banner.externalUrl
+                };
+            } else if (linkType === 'PRODUCTS_PAGE') {
+                link = {
+                    type: 'PRODUCTS_PAGE'
+                };
+            }
+            // Se linkType for 'NONE', link permanece null
 
             result.push({
                 id: banner.heroId,
@@ -316,10 +358,7 @@ export const heroProductService = {
                 imagem_mobile: banner.imageMobile || banner.imageDesktop, // Usar desktop como fallback
                 preco: 0,
                 displayDuration: banner.displayDuration || 5,
-                link: {
-                    type: 'EXTERNAL',
-                    url: banner.externalUrl || ''
-                }
+                link: link
             });
         }
 
@@ -444,10 +483,16 @@ export const heroProductService = {
                         const lote = sortedPrices[i];
                         const quantidadeCompra = Number(lote.quantidadeCompra) || 0;
                         
+                        // Se quantidade_compra for 0, permite apenas 1 unidade por agência (qualquer lote)
                         if (quantidadeCompra === 0) {
-                            loteDisponivel = lote;
-                            podeComprar = true;
-                            break;
+                            // Se a agência ainda não comprou nenhuma unidade, pode comprar
+                            if (agencyPurchaseCount === 0) {
+                                loteDisponivel = lote;
+                                podeComprar = true;
+                                break;
+                            }
+                            // Se já comprou, não pode mais comprar neste lote com quantidadeCompra = 0
+                            continue;
                         }
                         
                         if (agencyPurchaseCount >= quantidadeCompra) {
@@ -494,15 +539,32 @@ export const heroProductService = {
         }
 
         // Ordenar resultado final por display_order
+        // Para banners EXTERNAL, usar heroId para identificar (já que podem não ter URL)
         return result.sort((a, b) => {
-            const aOrder = heroProducts.find((hp: any) => 
-                (hp.bannerType === 'PRODUCT' && a.link?.product_id === hp.productId) ||
-                (hp.bannerType === 'EXTERNAL' && a.link?.url === hp.externalUrl)
-            )?.displayOrder || 0;
-            const bOrder = heroProducts.find((hp: any) => 
-                (hp.bannerType === 'PRODUCT' && b.link?.product_id === hp.productId) ||
-                (hp.bannerType === 'EXTERNAL' && b.link?.url === hp.externalUrl)
-            )?.displayOrder || 0;
+            const aOrder = heroProducts.find((hp: any) => {
+                if (hp.bannerType === 'PRODUCT' && a.link?.product_id === hp.productId) {
+                    return true;
+                }
+                if (hp.bannerType === 'EXTERNAL') {
+                    // Para banners externos, verificar por heroId ou URL
+                    if (a.id === hp.heroId) return true;
+                    if (a.link?.url && a.link.url === hp.externalUrl) return true;
+                }
+                return false;
+            })?.displayOrder || 0;
+            
+            const bOrder = heroProducts.find((hp: any) => {
+                if (hp.bannerType === 'PRODUCT' && b.link?.product_id === hp.productId) {
+                    return true;
+                }
+                if (hp.bannerType === 'EXTERNAL') {
+                    // Para banners externos, verificar por heroId ou URL
+                    if (b.id === hp.heroId) return true;
+                    if (b.link?.url && b.link.url === hp.externalUrl) return true;
+                }
+                return false;
+            })?.displayOrder || 0;
+            
             return aOrder - bOrder;
         });
     }

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useNavigate } from "react-router-dom";
@@ -21,10 +21,10 @@ interface HeroProduct {
   preco: number;
   displayDuration?: number;
   link?: {
-    type: 'PRODUCT' | 'EXTERNAL';
+    type: 'PRODUCT' | 'EXTERNAL' | 'PRODUCTS_PAGE';
     product_id?: number;
     url?: string;
-  };
+  } | null;
 }
 
 const imageMap: Record<string, string> = {
@@ -66,6 +66,8 @@ const HeroSection = () => {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [loading, setLoading] = useState(true);
   const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 });
+  const intervalRef = useRef<NodeJS.Timeout | null>(null);
+  const currentIndexRef = useRef(0);
 
   useEffect(() => {
     const loadProducts = async () => {
@@ -86,26 +88,57 @@ const HeroSection = () => {
     loadProducts();
   }, [agency?.id]);
 
+  // Atualizar ref quando currentIndex mudar
+  useEffect(() => {
+    currentIndexRef.current = currentIndex;
+  }, [currentIndex]);
+
   // Auto-rotate products com tempo configurável
   useEffect(() => {
-    if (products.length === 0) return;
+    // Limpar intervalo anterior se existir
+    if (intervalRef.current) {
+      clearTimeout(intervalRef.current);
+      intervalRef.current = null;
+    }
+
+    if (products.length === 0 || products.length === 1) return;
     
-    const currentProduct = products[currentIndex] || products[0];
-    const duration = (currentProduct?.displayDuration || 5) * 1000; // Converter segundos para milissegundos
+    const scheduleNext = () => {
+      const currentIdx = currentIndexRef.current;
+      const nextIndex = (currentIdx + 1) % products.length;
+      const nextProduct = products[nextIndex] || products[0];
+      const nextDuration = (nextProduct?.displayDuration || 5) * 1000;
+      
+      setCurrentIndex(nextIndex);
+      
+      // Agendar próximo com a duração do próximo produto
+      intervalRef.current = setTimeout(() => {
+        scheduleNext();
+      }, nextDuration);
+    };
     
-    const interval = setInterval(() => {
-      setCurrentIndex((prev) => (prev + 1) % products.length);
+    // Iniciar com a duração do produto atual
+    const currentProduct = products[currentIndexRef.current] || products[0];
+    const duration = (currentProduct?.displayDuration || 5) * 1000;
+    
+    intervalRef.current = setTimeout(() => {
+      scheduleNext();
     }, duration);
 
-    return () => clearInterval(interval);
-  }, [products.length, currentIndex, products]);
+    return () => {
+      if (intervalRef.current) {
+        clearTimeout(intervalRef.current);
+        intervalRef.current = null;
+      }
+    };
+  }, [products]);
 
   const currentProduct = products[currentIndex] || products[0];
 
   const handleAddToCart = () => {
     if (!currentProduct) return;
 
-    // Só adicionar ao carrinho se for um produto (não banner externo)
+    // Lidar com diferentes tipos de link
     if (currentProduct.link?.type === 'EXTERNAL') {
       // Redirecionar para URL externa
       if (currentProduct.link.url) {
@@ -114,14 +147,23 @@ const HeroSection = () => {
       return;
     }
 
-    addItem({
-      id: currentProduct.id,
-      name: currentProduct.nome,
-      image: getImageUrl(currentProduct.imagem),
-      price: currentProduct.preco,
-    });
-    
-    toast.success(`${currentProduct.nome} adicionado ao carrinho!`);
+    if (currentProduct.link?.type === 'PRODUCTS_PAGE') {
+      // Redirecionar para página de produtos
+      navigate('/collection');
+      return;
+    }
+
+    // Se não tem link ou é produto, adicionar ao carrinho
+    if (!currentProduct.link || currentProduct.link.type === 'PRODUCT') {
+      addItem({
+        id: currentProduct.id,
+        name: currentProduct.nome,
+        image: getImageUrl(currentProduct.imagem),
+        price: currentProduct.preco,
+      });
+      
+      toast.success(`${currentProduct.nome} adicionado ao carrinho!`);
+    }
   };
 
   // Obter imagem baseada no tamanho da tela
@@ -140,15 +182,19 @@ const HeroSection = () => {
   }
 
   // Verificar se o banner atual é externo
-  const isExternalBanner = currentProduct?.link?.type === 'EXTERNAL';
+  // Banners externos têm preço 0 e nome 'Banner' (conforme retornado pelo service)
+  const isExternalBanner = currentProduct && currentProduct.preco === 0 && currentProduct.nome === 'Banner';
 
   // Renderização para banner externo (full-width)
   if (isExternalBanner && currentProduct) {
+    // Determinar se o banner é clicável (tem link)
+    const hasLink = currentProduct.link?.type === 'EXTERNAL' || currentProduct.link?.type === 'PRODUCTS_PAGE';
+    
     return (
-      <section className="relative w-full overflow-hidden">
+      <section className="relative w-full overflow-hidden h-[600px] md:h-[700px] lg:h-[800px]">
         <div 
-          className="relative w-full h-[60vh] md:h-[70vh] lg:h-[80vh] cursor-pointer group z-0"
-          onClick={handleAddToCart}
+          className={`relative w-full h-full group z-0 ${hasLink ? 'cursor-pointer' : ''}`}
+          onClick={hasLink ? handleAddToCart : undefined}
         >
           <img
             src={getCurrentImage()}
@@ -156,7 +202,7 @@ const HeroSection = () => {
             className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
           />
           {/* Overlay escuro para melhorar legibilidade do texto (opcional) */}
-          <div className="absolute inset-0 bg-black/20 group-hover:bg-black/30 transition-colors" />
+          <div className={`absolute inset-0 bg-black/20 transition-colors ${hasLink ? 'group-hover:bg-black/30' : ''}`} />
           
           {/* Navigation Dots para banners externos */}
           {products.length > 1 && (
@@ -184,9 +230,9 @@ const HeroSection = () => {
 
   // Renderização para produto (layout original)
   return (
-    <section className="relative min-h-screen diagonal-bg overflow-hidden">
-      <div className="relative z-0 max-w-7xl mx-auto px-6 pt-32 pb-20">
-        <div className="grid lg:grid-cols-2 gap-12 items-center">
+    <section className="relative h-[600px] md:h-[700px] lg:h-[800px] diagonal-bg overflow-hidden">
+      <div className="relative z-0 max-w-7xl mx-auto px-6 h-full flex items-center">
+        <div className="grid lg:grid-cols-2 gap-12 items-center w-full">
           {/* Left Content */}
           <div className="space-y-8">
             <div className="space-y-2">

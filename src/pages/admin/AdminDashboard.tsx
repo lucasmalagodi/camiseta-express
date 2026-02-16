@@ -39,6 +39,7 @@ import { formatPoints } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import ReportWidget from "@/components/admin/ReportWidget";
 import { Plus } from "lucide-react";
+import { useTableSort } from "@/hooks/useTableSort";
 
 interface OrdersSummary {
   totalOrders: number;
@@ -119,6 +120,8 @@ const AdminDashboard = () => {
   const [agencyOrders, setAgencyOrders] = useState<AgencyOrder[]>([]);
   const [isLoadingOrders, setIsLoadingOrders] = useState(false);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  
+  const { sortedData: sortedAgencyOrders, handleSort, getSortIcon } = useTableSort(agencyOrders);
 
   // Load cards config from localStorage
   useEffect(() => {
@@ -139,20 +142,6 @@ const AdminDashboard = () => {
     if (savedLock !== null) {
       setIsLocked(savedLock === 'true');
     }
-
-    // Load widget expanded states
-    const savedWidgetExpanded = localStorage.getItem('dashboard-widgets-expanded');
-    if (savedWidgetExpanded) {
-      try {
-        const parsed = JSON.parse(savedWidgetExpanded);
-        setReportWidgets(prev => prev.map(w => ({
-          ...w,
-          expanded: parsed[w.id] ?? 0
-        })));
-      } catch (error) {
-        console.error("Erro ao carregar estados expandidos dos widgets:", error);
-      }
-    }
   }, []);
 
   // Save cards config to localStorage
@@ -165,16 +154,6 @@ const AdminDashboard = () => {
     localStorage.setItem(STORAGE_LOCK_KEY, String(isLocked));
   }, [isLocked]);
 
-  // Save widget expanded states to localStorage
-  useEffect(() => {
-    const expandedStates: Record<number, number> = {};
-    reportWidgets.forEach(w => {
-      if (w.expanded !== undefined) {
-        expandedStates[w.id] = w.expanded;
-      }
-    });
-    localStorage.setItem('dashboard-widgets-expanded', JSON.stringify(expandedStates));
-  }, [reportWidgets]);
 
   useEffect(() => {
     loadDashboardData();
@@ -186,22 +165,8 @@ const AdminDashboard = () => {
       const widgets = await dashboardWidgetService.getAll();
       // Sort by position to ensure correct order
       const sortedWidgets = [...widgets].sort((a, b) => a.position - b.position);
-      
-      // Load expanded states from localStorage
-      const savedWidgetExpanded = localStorage.getItem('dashboard-widgets-expanded');
-      if (savedWidgetExpanded) {
-        try {
-          const parsed = JSON.parse(savedWidgetExpanded);
-          setReportWidgets(sortedWidgets.map(w => ({
-            ...w,
-            expanded: parsed[w.id] ?? 0
-          })));
-        } catch {
-          setReportWidgets(sortedWidgets.map(w => ({ ...w, expanded: 0 })));
-        }
-      } else {
-        setReportWidgets(sortedWidgets.map(w => ({ ...w, expanded: 0 })));
-      }
+      // Expanded state já vem do banco
+      setReportWidgets(sortedWidgets);
     } catch (error) {
       console.error("Erro ao carregar widgets de relatórios:", error);
     }
@@ -243,18 +208,6 @@ const AdminDashboard = () => {
       // Remove from local state after successful deletion
       setReportWidgets(prev => prev.filter(w => w.id !== widgetId));
       
-      // Remove expanded state from localStorage
-      const savedWidgetExpanded = localStorage.getItem('dashboard-widgets-expanded');
-      if (savedWidgetExpanded) {
-        try {
-          const parsed = JSON.parse(savedWidgetExpanded);
-          delete parsed[widgetId];
-          localStorage.setItem('dashboard-widgets-expanded', JSON.stringify(parsed));
-        } catch (error) {
-          console.error("Erro ao remover estado expandido do widget:", error);
-        }
-      }
-      
       toast.success("Widget removido do dashboard");
     } catch (error: any) {
       console.error("Erro ao remover widget:", error);
@@ -265,14 +218,35 @@ const AdminDashboard = () => {
     }
   };
 
-  // Widget expand handler
-  const toggleWidgetExpand = (widgetId: number) => {
+  // Widget expand handler - salva no banco
+  const toggleWidgetExpand = async (widgetId: number) => {
     if (isLocked) return;
+    
+    const widget = reportWidgets.find(w => w.id === widgetId);
+    if (!widget) return;
+    
+    const newExpanded = ((widget.expanded ?? 0) + 1) % 3;
+    
+    // Atualizar localmente primeiro para feedback imediato
     setReportWidgets(prev => prev.map(w => 
       w.id === widgetId 
-        ? { ...w, expanded: ((w.expanded ?? 0) + 1) % 3 }
+        ? { ...w, expanded: newExpanded }
         : w
     ));
+    
+    // Salvar no banco
+    try {
+      await dashboardWidgetService.update(widgetId, { expanded: newExpanded });
+    } catch (error: any) {
+      console.error("Erro ao salvar estado expandido do widget:", error);
+      toast.error("Erro ao salvar configuração do widget");
+      // Reverter mudança local em caso de erro
+      setReportWidgets(prev => prev.map(w => 
+        w.id === widgetId 
+          ? { ...w, expanded: widget.expanded ?? 0 }
+          : w
+      ));
+    }
   };
 
   const loadDashboardData = async () => {
@@ -431,12 +405,16 @@ const AdminDashboard = () => {
         // Update cards config
         setCardsConfig(newCardsConfig);
 
-        // Update widgets positions in backend
+        // Update widgets positions in backend (mantendo expanded)
         if (widgetUpdates.length > 0) {
           await Promise.all(
-            widgetUpdates.map(({ id, position }) =>
-              dashboardWidgetService.update(id, { position })
-            )
+            widgetUpdates.map(({ id, position }) => {
+              const widget = reportWidgets.find(w => w.id === id);
+              return dashboardWidgetService.update(id, { 
+                position,
+                expanded: widget?.expanded ?? 0
+              });
+            })
           );
           
           // Update local state
@@ -894,15 +872,40 @@ const AdminDashboard = () => {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>ID</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Total de Pontos</TableHead>
-                      <TableHead>Itens</TableHead>
-                      <TableHead>Criado em</TableHead>
+                      <TableHead 
+                        className="cursor-pointer hover:bg-muted/50 select-none"
+                        onClick={() => handleSort("id")}
+                      >
+                        ID{getSortIcon("id")}
+                      </TableHead>
+                      <TableHead 
+                        className="cursor-pointer hover:bg-muted/50 select-none"
+                        onClick={() => handleSort("status")}
+                      >
+                        Status{getSortIcon("status")}
+                      </TableHead>
+                      <TableHead 
+                        className="cursor-pointer hover:bg-muted/50 select-none"
+                        onClick={() => handleSort("totalPoints")}
+                      >
+                        Total de Pontos{getSortIcon("totalPoints")}
+                      </TableHead>
+                      <TableHead 
+                        className="cursor-pointer hover:bg-muted/50 select-none"
+                        onClick={() => handleSort("itemsCount")}
+                      >
+                        Itens{getSortIcon("itemsCount")}
+                      </TableHead>
+                      <TableHead 
+                        className="cursor-pointer hover:bg-muted/50 select-none"
+                        onClick={() => handleSort("createdAt")}
+                      >
+                        Criado em{getSortIcon("createdAt")}
+                      </TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {agencyOrders.map((order) => (
+                    {sortedAgencyOrders.map((order) => (
                       <TableRow key={order.id}>
                         <TableCell className="font-medium">#{order.id}</TableCell>
                         <TableCell>{getStatusBadge(order.status)}</TableCell>

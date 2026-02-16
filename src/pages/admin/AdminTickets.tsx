@@ -23,6 +23,7 @@ import {
 import { Search, Eye, MessageSquare } from "lucide-react";
 import { ticketService, agencyService } from "@/services/api";
 import { toast } from "sonner";
+import { useTableSort } from "@/hooks/useTableSort";
 
 interface Ticket {
   id: number;
@@ -50,6 +51,8 @@ const AdminTickets = () => {
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [agencyFilter, setAgencyFilter] = useState<string>("all");
+  
+  const { sortedData, handleSort, getSortIcon } = useTableSort(filteredTickets);
 
   const loadTickets = async () => {
     try {
@@ -204,18 +207,53 @@ const AdminTickets = () => {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>ID</TableHead>
-                  <TableHead>Assunto</TableHead>
-                  <TableHead>Agência</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Mensagens</TableHead>
-                  <TableHead>Criado em</TableHead>
-                  <TableHead>Atualizado em</TableHead>
+                  <TableHead 
+                    className="cursor-pointer hover:bg-muted/50 select-none"
+                    onClick={() => handleSort("id")}
+                  >
+                    ID{getSortIcon("id")}
+                  </TableHead>
+                  <TableHead 
+                    className="cursor-pointer hover:bg-muted/50 select-none"
+                    onClick={() => handleSort("subject")}
+                  >
+                    Assunto{getSortIcon("subject")}
+                  </TableHead>
+                  <TableHead 
+                    className="cursor-pointer hover:bg-muted/50 select-none"
+                    onClick={() => handleSort("agency_name")}
+                  >
+                    Agência{getSortIcon("agency_name")}
+                  </TableHead>
+                  <TableHead 
+                    className="cursor-pointer hover:bg-muted/50 select-none"
+                    onClick={() => handleSort("status")}
+                  >
+                    Status{getSortIcon("status")}
+                  </TableHead>
+                  <TableHead 
+                    className="cursor-pointer hover:bg-muted/50 select-none"
+                    onClick={() => handleSort("message_count")}
+                  >
+                    Mensagens{getSortIcon("message_count")}
+                  </TableHead>
+                  <TableHead 
+                    className="cursor-pointer hover:bg-muted/50 select-none"
+                    onClick={() => handleSort("created_at")}
+                  >
+                    Criado em{getSortIcon("created_at")}
+                  </TableHead>
+                  <TableHead 
+                    className="cursor-pointer hover:bg-muted/50 select-none"
+                    onClick={() => handleSort("updated_at")}
+                  >
+                    Atualizado em{getSortIcon("updated_at")}
+                  </TableHead>
                   <TableHead className="text-right">Ações</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredTickets.map((ticket) => (
+                {sortedData.map((ticket) => (
                   <TableRow key={ticket.id}>
                     <TableCell className="font-medium">#{ticket.id}</TableCell>
                     <TableCell>{ticket.subject}</TableCell>

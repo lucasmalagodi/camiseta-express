@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ShoppingBag, LogIn, Menu, X, LogOut, User, RefreshCw, MessageSquare } from "lucide-react";
+import { ShoppingBag, LogIn, Menu, X, LogOut, User, RefreshCw, MessageSquare, Package } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useNavigate, Link } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
@@ -90,13 +90,9 @@ const Navbar = () => {
                       </div>
                     </DropdownMenuLabel>
                     <DropdownMenuSeparator />
-                    <DropdownMenuItem onClick={() => navigate("/tickets")}>
-                      <MessageSquare className="w-4 h-4 mr-2" />
-                      Meus Tickets
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => navigate("/contato")}>
-                      <MessageSquare className="w-4 h-4 mr-2" />
-                      Contato
+                    <DropdownMenuItem onClick={() => navigate("/minha-conta")}>
+                      <User className="w-4 h-4 mr-2" />
+                      Minha Conta
                     </DropdownMenuItem>
                     <DropdownMenuSeparator />
                     <DropdownMenuItem onClick={handleLogout}>
@@ -237,23 +233,13 @@ const Navbar = () => {
                 </div>
                 <button
                   onClick={() => {
-                    navigate("/tickets");
+                    navigate("/minha-conta");
                     setIsMenuOpen(false);
                   }}
                   className="flex items-center gap-2 text-lg font-medium text-foreground hover:text-primary transition-colors mb-2"
                 >
-                  <MessageSquare className="w-5 h-5" />
-                  Meus Tickets
-                </button>
-                <button
-                  onClick={() => {
-                    navigate("/contato");
-                    setIsMenuOpen(false);
-                  }}
-                  className="flex items-center gap-2 text-lg font-medium text-foreground hover:text-primary transition-colors mb-2"
-                >
-                  <MessageSquare className="w-5 h-5" />
-                  Contato
+                  <User className="w-5 h-5" />
+                  Minha Conta
                 </button>
                 <button
                   onClick={() => {

@@ -5,13 +5,15 @@ import { CheckCircle2, ArrowRight, Loader2 } from "lucide-react";
 import { orderService } from "@/services/api";
 import { productService } from "@/services/api";
 import { useAuth } from "@/contexts/AuthContext";
-import { formatPoints } from "@/lib/utils";
+import { formatPoints, formatModelName } from "@/lib/utils";
 
 interface OrderItem {
   id: number;
   productId: number;
   quantity: number;
   pointsPerUnit: number;
+  model?: string | null;
+  size?: string | null;
 }
 
 interface Order {
@@ -151,7 +153,14 @@ const CheckoutConfirmation = () => {
                     <h3 className="font-medium">
                       {product?.name || `Produto #${item.productId}`}
                     </h3>
-                    <p className="text-sm text-muted-foreground">
+                    {(item.model || item.size) && (
+                      <p className="text-sm text-muted-foreground mt-1">
+                        {item.model && <span>{formatModelName(item.model)}</span>}
+                        {item.model && item.size && ' - '}
+                        {item.size && <span>{item.size}</span>}
+                      </p>
+                    )}
+                    <p className="text-sm text-muted-foreground mt-1">
                       Quantidade: {item.quantity} × {formatPoints(item.pointsPerUnit)} pts
                     </p>
                   </div>

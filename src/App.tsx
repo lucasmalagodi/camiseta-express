@@ -29,6 +29,7 @@ import AdminTicketDetail from "./pages/admin/AdminTicketDetail";
 import AdminReports from "./pages/admin/AdminReports";
 import AdminReportBuilder from "./pages/admin/AdminReportBuilder";
 import AdminReportView from "./pages/admin/AdminReportView";
+import AdminLegalDocuments from "./pages/admin/AdminLegalDocuments";
 import CheckoutConfirmation from "./pages/CheckoutConfirmation";
 import CheckoutInstructions from "./pages/CheckoutInstructions";
 import Cart from "./pages/Cart";
@@ -37,6 +38,10 @@ import Collection from "./pages/Collection";
 import Contact from "./pages/Contact";
 import Tickets from "./pages/Tickets";
 import TicketDetail from "./pages/TicketDetail";
+import MyOrders from "./pages/MyOrders";
+import MyAccount from "./pages/MyAccount";
+import OrderDetail from "./pages/OrderDetail";
+import CustomerPanel from "./pages/CustomerPanel";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -62,9 +67,14 @@ const App = () => (
                 <Route path="product/:id" element={<Product />} />
                 <Route path="checkout/confirmation/:orderId" element={<CheckoutConfirmation />} />
                 <Route path="checkout/instructions" element={<CheckoutInstructions />} />
-                <Route path="contato" element={<Contact />} />
-                <Route path="tickets" element={<Tickets />} />
+                <Route path="minha-conta" element={<MyAccount />} />
+                {/* Redirecionamentos para manter compatibilidade */}
+                <Route path="contato" element={<MyAccount />} />
+                <Route path="tickets" element={<MyAccount />} />
                 <Route path="tickets/:id" element={<TicketDetail />} />
+                <Route path="pedidos" element={<MyAccount />} />
+                <Route path="pedidos/:id" element={<OrderDetail />} />
+                <Route path="painel" element={<CustomerPanel />} />
                 </Route>
 
                 {/* Rotas do painel admin */}
@@ -89,6 +99,7 @@ const App = () => (
                   <Route path="configuracoes" element={<AdminSmtpConfig />} />
                   <Route path="tickets" element={<AdminTickets />} />
                   <Route path="tickets/:id" element={<AdminTicketDetail />} />
+                  <Route path="documentos-legais" element={<AdminLegalDocuments />} />
                   <Route path="relatorios" element={<AdminReports />} />
                   <Route path="relatorios/novo" element={<AdminReportBuilder />} />
                   <Route path="relatorios/:id" element={<AdminReportView />} />

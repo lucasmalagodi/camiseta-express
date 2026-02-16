@@ -45,5 +45,32 @@ exports.addressService = {
             return results[0];
         }
         return null;
+    },
+    async update(agencyId, data, connection) {
+        // Normalizar CEP (remover formatação)
+        const normalizedCep = data.cep.replace(/\D/g, '');
+        const normalizedCity = data.city.trim();
+        const normalizedState = data.state.trim().toUpperCase();
+        const updateQuery = `
+            UPDATE addresses 
+            SET cep = ?, street = ?, number = ?, complement = ?, neighborhood = ?, city = ?, state = ?, updated_at = NOW()
+            WHERE agency_id = ?
+        `;
+        const params = [
+            normalizedCep,
+            data.street.trim(),
+            data.number.trim(),
+            data.complement?.trim() || null,
+            data.neighborhood.trim(),
+            normalizedCity,
+            normalizedState,
+            agencyId
+        ];
+        if (connection) {
+            await connection.execute(updateQuery, params);
+        }
+        else {
+            await (0, db_1.query)(updateQuery, params);
+        }
     }
 };

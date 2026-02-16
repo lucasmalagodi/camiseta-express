@@ -14,8 +14,8 @@ export default {
     },
     extend: {
       fontFamily: {
-        sans: ['Inter', 'sans-serif'],
-        display: ['Bebas Neue', 'sans-serif'],
+        sans: ['Inter', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', 'sans-serif'],
+        display: ['Bebas Neue', 'Arial Black', 'Arial Bold', 'Impact', 'Helvetica Neue', 'sans-serif'],
       },
       colors: {
         border: "hsl(var(--border))",

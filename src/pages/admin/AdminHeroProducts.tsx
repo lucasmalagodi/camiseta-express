@@ -40,6 +40,7 @@ interface HeroProduct {
   imageDesktop: string | null;
   imageMobile: string | null;
   externalUrl: string | null;
+  linkType: 'EXTERNAL_URL' | 'PRODUCTS_PAGE' | 'NONE' | null;
   displayOrder: number;
   displayDuration: number;
   active: boolean;
@@ -62,6 +63,7 @@ const AdminHeroProducts = () => {
   const [bannerType, setBannerType] = useState<'PRODUCT' | 'EXTERNAL'>('PRODUCT');
   const [selectedProductId, setSelectedProductId] = useState<number | null>(null);
   const [externalUrl, setExternalUrl] = useState<string>('');
+  const [linkType, setLinkType] = useState<'EXTERNAL_URL' | 'PRODUCTS_PAGE' | 'NONE'>('NONE');
   const [imageDesktop, setImageDesktop] = useState<string>('');
   const [imageMobile, setImageMobile] = useState<string>('');
   const [displayOrder, setDisplayOrder] = useState<number>(0);
@@ -144,6 +146,7 @@ const AdminHeroProducts = () => {
     setBannerType('PRODUCT');
     setSelectedProductId(null);
     setExternalUrl('');
+    setLinkType('NONE');
     setImageDesktop('');
     setImageMobile('');
     setDisplayOrder(heroProducts.length > 0 ? Math.max(...heroProducts.map(hp => hp.displayOrder)) + 1 : 0);
@@ -156,6 +159,7 @@ const AdminHeroProducts = () => {
     setBannerType(heroProduct.bannerType);
     setSelectedProductId(heroProduct.productId);
     setExternalUrl(heroProduct.externalUrl || '');
+    setLinkType(heroProduct.linkType || 'NONE');
     setImageDesktop(heroProduct.imageDesktop || '');
     setImageMobile(heroProduct.imageMobile || '');
     setDisplayOrder(heroProduct.displayOrder);
@@ -222,13 +226,14 @@ const AdminHeroProducts = () => {
         }
         // Para PRODUCT, imageDesktop é opcional (pode usar imagem do produto)
       } else {
-        if (!externalUrl) {
-          toast.error("Informe a URL externa");
-          return;
-        }
         // Para EXTERNAL, imageDesktop é obrigatório
         if (!imageDesktop) {
           toast.error("É necessário fazer upload da imagem desktop para banners externos");
+          return;
+        }
+        // Validar linkType
+        if (linkType === 'EXTERNAL_URL' && !externalUrl) {
+          toast.error("Informe a URL externa quando o tipo de link for 'Link Externo'");
           return;
         }
       }
@@ -244,7 +249,12 @@ const AdminHeroProducts = () => {
       if (bannerType === 'PRODUCT') {
         data.productId = selectedProductId;
       } else {
-        data.externalUrl = externalUrl;
+        data.linkType = linkType;
+        if (linkType === 'EXTERNAL_URL') {
+          data.externalUrl = externalUrl;
+        } else {
+          data.externalUrl = null;
+        }
       }
 
       if (editingId) {
@@ -496,6 +506,7 @@ const AdminHeroProducts = () => {
                   setBannerType(value as 'PRODUCT' | 'EXTERNAL');
                   setSelectedProductId(null);
                   setExternalUrl('');
+                  setLinkType('NONE');
                 }}
               >
                 <SelectTrigger id="bannerType">
@@ -539,16 +550,42 @@ const AdminHeroProducts = () => {
                 )}
               </div>
             ) : (
-              <div>
-                <Label htmlFor="externalUrl">URL Externa</Label>
-                <Input
-                  id="externalUrl"
-                  type="url"
-                  placeholder="https://exemplo.com"
-                  value={externalUrl}
-                  onChange={(e) => setExternalUrl(e.target.value)}
-                />
-              </div>
+              <>
+                <div>
+                  <Label htmlFor="linkType">Tipo de Link</Label>
+                  <Select
+                    value={linkType}
+                    onValueChange={(value) => {
+                      setLinkType(value as 'EXTERNAL_URL' | 'PRODUCTS_PAGE' | 'NONE');
+                      if (value !== 'EXTERNAL_URL') {
+                        setExternalUrl('');
+                      }
+                    }}
+                  >
+                    <SelectTrigger id="linkType">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="EXTERNAL_URL">Link Externo</SelectItem>
+                      <SelectItem value="PRODUCTS_PAGE">Link de Produtos Ativos</SelectItem>
+                      <SelectItem value="NONE">Sem Link</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {linkType === 'EXTERNAL_URL' && (
+                  <div>
+                    <Label htmlFor="externalUrl">URL Externa *</Label>
+                    <Input
+                      id="externalUrl"
+                      type="url"
+                      placeholder="https://exemplo.com"
+                      value={externalUrl}
+                      onChange={(e) => setExternalUrl(e.target.value)}
+                    />
+                  </div>
+                )}
+              </>
             )}
 
             <div>

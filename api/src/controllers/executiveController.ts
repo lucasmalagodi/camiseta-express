@@ -6,12 +6,14 @@ const createExecutiveSchema = z.object({
     code: z.string().min(1, 'Código é obrigatório'),
     email: z.string().email('Email inválido'),
     name: z.string().optional(),
+    branchId: z.number().int().positive().nullable().optional(),
 });
 
 const updateExecutiveSchema = z.object({
     code: z.string().min(1, 'Código é obrigatório').optional(),
     email: z.string().email('Email inválido').optional(),
     name: z.string().optional(),
+    branchId: z.number().int().positive().nullable().optional(),
     active: z.boolean().optional(),
 });
 

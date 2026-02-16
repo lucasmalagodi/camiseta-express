@@ -7,7 +7,8 @@ const productService_1 = require("../services/productService");
 const createHeroProductSchema = zod_1.z.object({
     bannerType: zod_1.z.enum(['PRODUCT', 'EXTERNAL']),
     productId: zod_1.z.number().int().positive().optional(),
-    externalUrl: zod_1.z.string().url().optional(),
+    externalUrl: zod_1.z.string().url().optional().nullable(),
+    linkType: zod_1.z.enum(['EXTERNAL_URL', 'PRODUCTS_PAGE', 'NONE']).optional().nullable(),
     imageDesktop: zod_1.z.union([zod_1.z.string().min(1), zod_1.z.literal('')]).optional().transform(val => val === '' ? undefined : val),
     imageMobile: zod_1.z.union([zod_1.z.string().min(1), zod_1.z.literal('')]).optional().transform(val => val === '' ? undefined : val),
     displayOrder: zod_1.z.number().int().min(0).optional(),
@@ -15,13 +16,13 @@ const createHeroProductSchema = zod_1.z.object({
     active: zod_1.z.boolean().optional()
 }).refine((data) => {
     if (data.bannerType === 'PRODUCT') {
-        return !!data.productId && !data.externalUrl;
+        return !!data.productId && !data.externalUrl && !data.linkType;
     }
     else {
-        return !!data.externalUrl && !data.productId;
+        return !data.productId;
     }
 }, {
-    message: 'Para PRODUCT, productId é obrigatório e externalUrl não pode ser definido. Para EXTERNAL, externalUrl é obrigatório e productId não pode ser definido.'
+    message: 'Para PRODUCT, productId é obrigatório e externalUrl/linkType não podem ser definidos. Para EXTERNAL, productId não pode ser definido.'
 }).refine((data) => {
     // Para EXTERNAL, imageDesktop é obrigatório
     if (data.bannerType === 'EXTERNAL') {
@@ -32,11 +33,26 @@ const createHeroProductSchema = zod_1.z.object({
 }, {
     message: 'imageDesktop é obrigatório para banners do tipo EXTERNAL',
     path: ['imageDesktop']
+}).refine((data) => {
+    // Para EXTERNAL, validar linkType e externalUrl
+    if (data.bannerType === 'EXTERNAL') {
+        const linkType = data.linkType || 'NONE';
+        if (linkType === 'EXTERNAL_URL') {
+            return !!data.externalUrl;
+        }
+        // Para PRODUCTS_PAGE ou NONE, externalUrl deve ser null ou vazio
+        return true;
+    }
+    return true;
+}, {
+    message: 'Para banners EXTERNAL com linkType EXTERNAL_URL, externalUrl é obrigatório',
+    path: ['externalUrl']
 });
 const updateHeroProductSchema = zod_1.z.object({
     bannerType: zod_1.z.enum(['PRODUCT', 'EXTERNAL']).optional(),
     productId: zod_1.z.number().int().positive().nullable().optional(),
     externalUrl: zod_1.z.string().url().nullable().optional(),
+    linkType: zod_1.z.enum(['EXTERNAL_URL', 'PRODUCTS_PAGE', 'NONE']).nullable().optional(),
     imageDesktop: zod_1.z.union([zod_1.z.string().min(1), zod_1.z.literal('')]).optional().transform(val => val === '' ? undefined : val),
     imageMobile: zod_1.z.union([zod_1.z.string().min(1), zod_1.z.literal('')]).optional().transform(val => val === '' ? undefined : val),
     displayOrder: zod_1.z.number().int().min(0).optional(),
@@ -104,6 +120,9 @@ exports.heroProductController = {
                 if (data.externalUrl !== undefined && data.externalUrl !== null) {
                     return res.status(400).json({ message: 'externalUrl não pode ser definido para banners do tipo PRODUCT' });
                 }
+                if (data.linkType !== undefined && data.linkType !== null) {
+                    return res.status(400).json({ message: 'linkType não pode ser definido para banners do tipo PRODUCT' });
+                }
                 // Verificar se o produto existe
                 const product = await productService_1.productService.findById(productId);
                 if (!product) {
@@ -111,12 +130,14 @@ exports.heroProductController = {
                 }
             }
             else if (bannerType === 'EXTERNAL') {
-                const externalUrl = data.externalUrl !== undefined ? data.externalUrl : heroProduct.externalUrl;
-                if (!externalUrl) {
-                    return res.status(400).json({ message: 'externalUrl é obrigatório para banners do tipo EXTERNAL' });
-                }
                 if (data.productId !== undefined && data.productId !== null) {
                     return res.status(400).json({ message: 'productId não pode ser definido para banners do tipo EXTERNAL' });
+                }
+                // Validar linkType e externalUrl
+                const linkType = data.linkType !== undefined ? data.linkType : heroProduct.linkType || 'NONE';
+                const externalUrl = data.externalUrl !== undefined ? data.externalUrl : heroProduct.externalUrl;
+                if (linkType === 'EXTERNAL_URL' && !externalUrl) {
+                    return res.status(400).json({ message: 'externalUrl é obrigatório quando linkType é EXTERNAL_URL' });
                 }
             }
             await heroProductService_1.heroProductService.update(id, data);

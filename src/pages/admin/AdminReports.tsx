@@ -25,6 +25,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { useTableSort } from "@/hooks/useTableSort";
 
 interface Report {
   id: number;
@@ -43,6 +44,8 @@ const AdminReports = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [reportToDelete, setReportToDelete] = useState<number | null>(null);
+  
+  const { sortedData, handleSort, getSortIcon } = useTableSort(reports);
 
   useEffect(() => {
     loadReports();
@@ -156,15 +159,35 @@ const AdminReports = () => {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Nome</TableHead>
-                  <TableHead>Fonte de Dados</TableHead>
-                  <TableHead>Tipo de Visualização</TableHead>
-                  <TableHead>Criado em</TableHead>
+                  <TableHead 
+                    className="cursor-pointer hover:bg-muted/50 select-none"
+                    onClick={() => handleSort("name")}
+                  >
+                    Nome{getSortIcon("name")}
+                  </TableHead>
+                  <TableHead 
+                    className="cursor-pointer hover:bg-muted/50 select-none"
+                    onClick={() => handleSort("sourceTable")}
+                  >
+                    Fonte de Dados{getSortIcon("sourceTable")}
+                  </TableHead>
+                  <TableHead 
+                    className="cursor-pointer hover:bg-muted/50 select-none"
+                    onClick={() => handleSort("visualizationType")}
+                  >
+                    Tipo de Visualização{getSortIcon("visualizationType")}
+                  </TableHead>
+                  <TableHead 
+                    className="cursor-pointer hover:bg-muted/50 select-none"
+                    onClick={() => handleSort("createdAt")}
+                  >
+                    Criado em{getSortIcon("createdAt")}
+                  </TableHead>
                   <TableHead className="text-right">Ações</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {reports.map((report) => (
+                {sortedData.map((report) => (
                   <TableRow key={report.id}>
                     <TableCell className="font-medium">{report.name}</TableCell>
                     <TableCell>

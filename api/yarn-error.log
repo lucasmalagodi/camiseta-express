@@ -1,0 +1,76 @@
+Arguments: 
+  /opt/homebrew/Cellar/node/23.11.0/bin/node /usr/local/bin/yarn install
+
+PATH: 
+  /opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/opt/pmk/env/global/bin:/Library/Apple/usr/bin:/Users/lucasmalagodi/Library/pnpm
+
+Yarn version: 
+  1.22.19
+
+Node version: 
+  23.11.0
+
+Platform: 
+  darwin arm64
+
+Trace: 
+  Error: unable to get local issuer certificate
+      at TLSSocket.onConnectSecure (node:_tls_wrap:1679:34)
+      at TLSSocket.emit (node:events:507:28)
+      at TLSSocket._finishInit (node:_tls_wrap:1078:8)
+      at ssl.onhandshakedone (node:_tls_wrap:864:12)
+
+npm manifest: 
+  {
+    "name": "backend",
+    "version": "1.0.0",
+    "main": "index.js",
+    "scripts": {
+      "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
+      "build": "rimraf dist && tsc",
+      "start": "node dist/server.js",
+      "migrate": "ts-node-dev src/utils/migrate.ts",
+      "test": "echo \"Error: no test specified\" && exit 1"
+    },
+    "keywords": [],
+    "author": "",
+    "license": "ISC",
+    "description": "",
+    "dependencies": {
+      "@types/multer": "^2.0.0",
+      "@types/nodemailer": "^7.0.9",
+      "bcryptjs": "^3.0.3",
+      "cookie-parser": "^1.4.6",
+      "cors": "^2.8.6",
+      "dotenv": "^17.2.3",
+      "express": "^5.2.1",
+      "express-rate-limit": "^8.2.1",
+      "helmet": "^8.1.0",
+      "hpp": "^0.2.3",
+      "jsonwebtoken": "^9.0.3",
+      "multer": "^2.0.2",
+      "mysql2": "^3.16.1",
+      "nodemailer": "^7.0.13",
+      "xlsx": "^0.18.5",
+      "zod": "^4.3.6"
+    },
+    "devDependencies": {
+      "@types/bcryptjs": "^2.4.6",
+      "@types/cookie-parser": "^1.4.7",
+      "@types/cors": "^2.8.19",
+      "@types/express": "^5.0.6",
+      "@types/hpp": "^0.2.7",
+      "@types/jsonwebtoken": "^9.0.10",
+      "@types/node": "^25.0.10",
+      "@types/xlsx": "^0.0.36",
+      "rimraf": "^6.1.2",
+      "ts-node-dev": "^2.0.0",
+      "typescript": "^5.9.3"
+    }
+  }
+
+yarn manifest: 
+  No manifest
+
+Lockfile: 
+  No lockfile

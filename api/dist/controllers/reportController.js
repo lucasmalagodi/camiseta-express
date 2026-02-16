@@ -18,6 +18,7 @@ exports.reportController = {
                 sourceTable: req.body.sourceTable,
                 visualizationType: req.body.visualizationType,
                 config: req.body.config,
+                isPublic: req.body.isPublic,
             };
             // Validações básicas
             if (!dto.name || !dto.sourceTable || !dto.config) {
@@ -43,7 +44,16 @@ exports.reportController = {
     // Listar todos os relatórios
     async getAll(req, res) {
         try {
-            const reports = await reportService_1.reportService.getAllReports();
+            const userId = req.user?.id;
+            let reports;
+            if (userId) {
+                // Se tem usuário autenticado, retornar apenas públicos ou do próprio usuário
+                reports = await reportService_1.reportService.getAvailableReportsForUser(userId);
+            }
+            else {
+                // Se não tem usuário, retornar apenas públicos
+                reports = await reportService_1.reportService.getAllReports().then(rs => rs.filter(r => r.isPublic));
+            }
             res.json({ success: true, data: reports });
         }
         catch (error) {
@@ -96,6 +106,7 @@ exports.reportController = {
                 sourceTable: req.body.sourceTable,
                 visualizationType: req.body.visualizationType,
                 config: req.body.config,
+                isPublic: req.body.isPublic,
             };
             // Remover campos undefined
             Object.keys(dto).forEach(key => {
@@ -204,7 +215,14 @@ exports.dashboardWidgetController = {
     // Criar widget
     async create(req, res) {
         try {
-            const { reportId, position } = req.body;
+            const userId = req.user?.id;
+            if (!userId) {
+                return res.status(401).json({
+                    success: false,
+                    message: 'Usuário não autenticado',
+                });
+            }
+            const { reportId, position, expanded } = req.body;
             if (!reportId) {
                 return res.status(400).json({
                     success: false,
@@ -214,7 +232,8 @@ exports.dashboardWidgetController = {
             const widget = await reportService_1.reportService.createDashboardWidget({
                 reportId,
                 position,
-            });
+                expanded,
+            }, userId);
             res.status(201).json({ success: true, data: widget });
         }
         catch (error) {
@@ -228,7 +247,14 @@ exports.dashboardWidgetController = {
     // Listar widgets ativos
     async getActive(req, res) {
         try {
-            const widgets = await reportService_1.reportService.getActiveDashboardWidgets();
+            const userId = req.user?.id;
+            if (!userId) {
+                return res.status(401).json({
+                    success: false,
+                    message: 'Usuário não autenticado',
+                });
+            }
+            const widgets = await reportService_1.reportService.getActiveDashboardWidgets(userId);
             res.json({ success: true, data: widgets });
         }
         catch (error) {
@@ -269,6 +295,13 @@ exports.dashboardWidgetController = {
     // Atualizar widget
     async update(req, res) {
         try {
+            const userId = req.user?.id;
+            if (!userId) {
+                return res.status(401).json({
+                    success: false,
+                    message: 'Usuário não autenticado',
+                });
+            }
             const id = parseInt(req.params.id);
             if (isNaN(id)) {
                 return res.status(400).json({
@@ -276,11 +309,12 @@ exports.dashboardWidgetController = {
                     message: 'ID inválido',
                 });
             }
-            const { position, active } = req.body;
+            const { position, expanded, active } = req.body;
             const widget = await reportService_1.reportService.updateDashboardWidget(id, {
                 position,
+                expanded,
                 active,
-            });
+            }, userId);
             res.json({ success: true, data: widget });
         }
         catch (error) {
@@ -294,6 +328,13 @@ exports.dashboardWidgetController = {
     // Deletar widget
     async delete(req, res) {
         try {
+            const userId = req.user?.id;
+            if (!userId) {
+                return res.status(401).json({
+                    success: false,
+                    message: 'Usuário não autenticado',
+                });
+            }
             const id = parseInt(req.params.id);
             if (isNaN(id)) {
                 return res.status(400).json({
@@ -301,7 +342,7 @@ exports.dashboardWidgetController = {
                     message: 'ID inválido',
                 });
             }
-            await reportService_1.reportService.deleteDashboardWidget(id);
+            await reportService_1.reportService.deleteDashboardWidget(id, userId);
             res.json({ success: true, message: 'Widget deletado com sucesso' });
         }
         catch (error) {

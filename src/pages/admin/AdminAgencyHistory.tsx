@@ -16,6 +16,7 @@ import { ArrowLeft, History, Building2 } from "lucide-react";
 import { agencyService, agencyPointsLedgerService } from "@/services/api";
 import { toast } from "sonner";
 import { formatPoints } from "@/lib/utils";
+import { useTableSort } from "@/hooks/useTableSort";
 
 interface Agency {
   id: number;
@@ -51,6 +52,8 @@ const AdminAgencyHistory = () => {
   const [ledgerEntries, setLedgerEntries] = useState<LedgerEntry[]>([]);
   const [balance, setBalance] = useState<number>(0);
   const [isLoading, setIsLoading] = useState(true);
+  
+  const { sortedData, handleSort, getSortIcon } = useTableSort(ledgerEntries);
 
   useEffect(() => {
     if (!id) return;
@@ -164,11 +167,36 @@ const AdminAgencyHistory = () => {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Data</TableHead>
-                <TableHead>Tipo</TableHead>
-                <TableHead>Origem ID</TableHead>
-                <TableHead className="text-right">Pontos</TableHead>
-                <TableHead>Descrição</TableHead>
+                <TableHead 
+                  className="cursor-pointer hover:bg-muted/50 select-none"
+                  onClick={() => handleSort("createdAt")}
+                >
+                  Data{getSortIcon("createdAt")}
+                </TableHead>
+                <TableHead 
+                  className="cursor-pointer hover:bg-muted/50 select-none"
+                  onClick={() => handleSort("sourceType")}
+                >
+                  Tipo{getSortIcon("sourceType")}
+                </TableHead>
+                <TableHead 
+                  className="cursor-pointer hover:bg-muted/50 select-none"
+                  onClick={() => handleSort("sourceId")}
+                >
+                  Origem ID{getSortIcon("sourceId")}
+                </TableHead>
+                <TableHead 
+                  className="text-right cursor-pointer hover:bg-muted/50 select-none"
+                  onClick={() => handleSort("points")}
+                >
+                  Pontos{getSortIcon("points")}
+                </TableHead>
+                <TableHead 
+                  className="cursor-pointer hover:bg-muted/50 select-none"
+                  onClick={() => handleSort("description")}
+                >
+                  Descrição{getSortIcon("description")}
+                </TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -179,7 +207,7 @@ const AdminAgencyHistory = () => {
                   </TableCell>
                 </TableRow>
               ) : (
-                ledgerEntries.map((entry) => (
+                sortedData.map((entry) => (
                   <TableRow key={entry.id}>
                     <TableCell>{formatDate(entry.createdAt)}</TableCell>
                     <TableCell>

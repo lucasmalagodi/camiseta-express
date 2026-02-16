@@ -28,3 +28,22 @@ export function formatPoints(points: number): number {
     return Math.ceil(points);
   }
 }
+
+/**
+ * Formata o nome do modelo para exibição amigável.
+ * 
+ * @param model - Modelo do produto (MASCULINO, FEMININO, UNISEX)
+ * @returns Nome formatado do modelo
+ */
+export function formatModelName(model: string): string {
+  switch (model) {
+    case 'MASCULINO':
+      return 'Masculino';
+    case 'FEMININO':
+      return 'Feminino';
+    case 'UNISEX':
+      return 'Unisex';
+    default:
+      return model;
+  }
+}

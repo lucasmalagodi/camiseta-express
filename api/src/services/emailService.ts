@@ -721,5 +721,103 @@ Este é um email automático de teste. Você pode ignorá-lo com segurança.
         // Enviar email
         await transporter.sendMail(mailOptions);
         console.log(`Ticket reply notification email sent to ${agencyEmail} for ticket #${ticketId}`);
+    },
+
+    // Enviar código de verificação de dispositivo
+    async sendDeviceVerificationCode(
+        agencyEmail: string,
+        agencyName: string,
+        verificationCode: string
+    ): Promise<void> {
+        const smtpConfig = await this.getActiveSmtpConfig();
+        
+        if (!smtpConfig) {
+            throw new Error('SMTP configuration not found. Cannot send device verification code.');
+        }
+
+        // Descriptografar senha
+        const decryptedPassword = decrypt(smtpConfig.password_encrypted);
+
+        // Criar transporter
+        const transporter = nodemailer.createTransport({
+            host: smtpConfig.host,
+            port: smtpConfig.port,
+            secure: smtpConfig.secure,
+            auth: {
+                user: smtpConfig.user,
+                pass: decryptedPassword
+            },
+            connectionTimeout: 10000,
+            greetingTimeout: 10000,
+            socketTimeout: 10000
+        });
+
+        // Conteúdo do email
+        const mailOptions = {
+            from: `"${smtpConfig.from_name}" <${smtpConfig.from_email}>`,
+            to: agencyEmail,
+            subject: 'Código de Verificação de Dispositivo',
+            html: `
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <meta charset="utf-8">
+                    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                    <title>Código de Verificação</title>
+                </head>
+                <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
+                    <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 30px; text-align: center; border-radius: 10px 10px 0 0;">
+                        <h1 style="color: white; margin: 0; font-size: 28px;">🔐 Verificação de Dispositivo</h1>
+                    </div>
+                    
+                    <div style="background: #f9f9f9; padding: 30px; border-radius: 0 0 10px 10px; border: 1px solid #e0e0e0;">
+                        <p style="font-size: 16px; margin-bottom: 20px;">
+                            Olá, ${agencyName},
+                        </p>
+                        
+                        <p style="font-size: 16px; margin-bottom: 20px;">
+                            Detectamos um novo dispositivo tentando acessar sua conta. Para sua segurança, precisamos verificar este dispositivo.
+                        </p>
+                        
+                        <div style="background: white; padding: 30px; border-radius: 8px; margin: 20px 0; border: 2px solid #667eea; text-align: center;">
+                            <p style="margin: 0; font-size: 14px; color: #666; margin-bottom: 10px;">Seu código de verificação:</p>
+                            <p style="margin: 0; font-size: 36px; font-weight: bold; color: #667eea; letter-spacing: 8px;">
+                                ${verificationCode}
+                            </p>
+                        </div>
+                        
+                        <div style="background: #FEF3C7; border-left: 4px solid #F59E0B; padding: 15px; margin: 20px 0; border-radius: 4px;">
+                            <p style="margin: 0; font-size: 14px; color: #92400E;">
+                                <strong>⚠️ Importante:</strong> Este código expira em 10 minutos e pode ser usado apenas uma vez. 
+                                Se você não solicitou este código, ignore este email ou entre em contato conosco imediatamente.
+                            </p>
+                        </div>
+                        
+                        <p style="font-size: 14px; color: #666; margin-top: 30px; padding-top: 20px; border-top: 1px solid #e0e0e0;">
+                            Este é um email automático de segurança. Por favor, não responda.
+                        </p>
+                    </div>
+                </body>
+                </html>
+            `,
+            text: `
+Verificação de Dispositivo
+
+Olá, ${agencyName},
+
+Detectamos um novo dispositivo tentando acessar sua conta. Para sua segurança, precisamos verificar este dispositivo.
+
+Seu código de verificação: ${verificationCode}
+
+⚠️ IMPORTANTE: Este código expira em 10 minutos e pode ser usado apenas uma vez. 
+Se você não solicitou este código, ignore este email ou entre em contato conosco imediatamente.
+
+Este é um email automático de segurança. Por favor, não responda.
+            `
+        };
+
+        // Enviar email
+        await transporter.sendMail(mailOptions);
+        console.log(`Device verification code sent to ${agencyEmail}`);
     }
 };

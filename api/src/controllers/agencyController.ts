@@ -2,8 +2,12 @@ import { Request, Response } from 'express';
 import { z } from 'zod';
 import { agencyService } from '../services/agencyService';
 import { addressService } from '../services/addressService';
+import { query } from '../config/db';
 import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
+import { deviceVerificationService } from '../services/deviceVerificationService';
+import { emailService } from '../services/emailService';
+import { legalDocumentService } from '../services/legalDocumentService';
 
 const addressSchema = z.object({
     cep: z.string().min(1),
@@ -40,7 +44,8 @@ const registerAgencySchema = z.object({
     email: z.string().email(),
     phone: z.string().optional(),
     password: z.string().min(6),
-    address: addressSchema
+    address: addressSchema,
+    acceptedLegalDocuments: z.array(z.number().int().positive()).optional()
 });
 
 export const agencyController = {
@@ -203,10 +208,30 @@ export const agencyController = {
     async validateCnpj(req: Request, res: Response) {
         try {
             const data = validateCnpjSchema.parse(req.body);
+            
+            // Verificar se agência já existe (buscar normalizado)
+            const normalizedCnpj = data.cnpj.replace(/[^\d]/g, '');
+            const existingResults = await query(
+                `SELECT id FROM agencies 
+                 WHERE REPLACE(REPLACE(REPLACE(REPLACE(cnpj, '.', ''), '/', ''), '-', ''), ' ', '') = ?`,
+                [normalizedCnpj]
+            ) as any[];
+            
+            if (Array.isArray(existingResults) && existingResults.length > 0) {
+                return res.status(409).json({ 
+                    eligible: false,
+                    alreadyExists: true,
+                    message: 'Agency already exists'
+                });
+            }
+            
             const eligible = await agencyService.validateCnpjEligibility(data.cnpj);
             
             if (!eligible) {
-                return res.status(404).json({ eligible: false });
+                return res.status(404).json({ 
+                    eligible: false,
+                    alreadyExists: false
+                });
             }
 
             // Buscar nome da agência mais comum
@@ -214,6 +239,7 @@ export const agencyController = {
 
             res.json({ 
                 eligible: true,
+                alreadyExists: false,
                 agencyName: agencyName || null
             });
         } catch (error) {
@@ -243,6 +269,9 @@ export const agencyController = {
                 }
                 if (error.message === 'Agency already exists') {
                     return res.status(409).json({ message: error.message });
+                }
+                if (error.message.includes('must be accepted')) {
+                    return res.status(400).json({ message: error.message });
                 }
             }
             console.error(error);
@@ -305,6 +334,67 @@ export const agencyController = {
                 return res.status(401).json({ message: 'Credenciais inválidas' });
             }
 
+            // Verificar documentos legais pendentes
+            const pendingDocuments = await legalDocumentService.getPendingDocumentsForAgency(agency.id);
+            if (pendingDocuments.length > 0) {
+                // Retornar documentos pendentes para que o frontend possa exibir
+                return res.status(403).json({ 
+                    message: 'Você precisa aceitar os novos termos e políticas para continuar',
+                    pendingDocuments: pendingDocuments.map(doc => ({
+                        id: doc.id,
+                        type: doc.type,
+                        version: doc.version
+                    })),
+                    requiresAcceptance: true
+                });
+            }
+
+            // Verificar dispositivo confiável
+            const deviceToken = (req as any).cookies?.device_token;
+            const ipAddress = req.ip || (req.socket.remoteAddress) || (req.headers['x-forwarded-for'] as string)?.split(',')[0] || 'unknown';
+            const userAgent = req.get('user-agent') || 'unknown';
+
+            const isTrusted = await deviceVerificationService.isDeviceTrusted(
+                agency.id,
+                deviceToken,
+                ipAddress,
+                userAgent
+            );
+
+            // Se dispositivo não é confiável, requer verificação por código
+            if (!isTrusted) {
+                console.log('Device not trusted, requiring verification code for agency:', agency.id);
+
+                // Gerar código de verificação
+                const verificationCode = await deviceVerificationService.createVerificationCode(
+                    agency.id,
+                    ipAddress,
+                    userAgent
+                );
+
+                // Enviar código por email
+                try {
+                    await emailService.sendDeviceVerificationCode(
+                        agency.email,
+                        agency.name,
+                        verificationCode
+                    );
+                } catch (emailError) {
+                    console.error('Error sending verification code email:', emailError);
+                    return res.status(500).json({ 
+                        message: 'Erro ao enviar código de verificação. Tente novamente mais tarde.' 
+                    });
+                }
+
+                return res.status(200).json({
+                    requires2FA: true,
+                    message: 'Código de verificação enviado por email'
+                });
+            }
+
+            // Dispositivo confiável - fazer login normalmente
+            console.log('Device trusted, proceeding with login for agency:', agency.id);
+
             // Buscar dados completos da agência
             const fullAgency = await agencyService.findById(agency.id);
             const balance = await agencyService.getBalance(agency.id);
@@ -344,6 +434,223 @@ export const agencyController = {
             }
             console.error('Erro no login de agência:', error);
             res.status(500).json({ message: 'Erro no servidor' });
+        }
+    },
+
+    async verifyCode(req: Request, res: Response) {
+        try {
+            const { email, code } = z.object({
+                email: z.string().email(),
+                code: z.string().length(6, 'Código deve ter 6 dígitos')
+            }).parse(req.body);
+
+            // Normalizar email
+            const normalizedEmail = email.trim().toLowerCase();
+
+            // Buscar agência por email
+            const agency = await agencyService.findByEmail(normalizedEmail);
+
+            if (!agency) {
+                return res.status(401).json({ message: 'Credenciais inválidas' });
+            }
+
+            // Verificar se agência está ativa
+            if (!agency.active) {
+                return res.status(403).json({ message: 'Agência inativa' });
+            }
+
+            // Obter IP e user agent
+            const ipAddress = req.ip || (req.socket.remoteAddress) || (req.headers['x-forwarded-for'] as string)?.split(',')[0] || 'unknown';
+            const userAgent = req.get('user-agent') || 'unknown';
+
+            // Verificar código
+            const verificationResult = await deviceVerificationService.verifyCode(
+                agency.id,
+                code,
+                ipAddress
+            );
+
+            if (!verificationResult.valid) {
+                // Incrementar tentativas se código incorreto
+                const newAttempts = await deviceVerificationService.incrementCodeAttempts(
+                    agency.id,
+                    ipAddress
+                );
+
+                const attemptsRemaining = Math.max(0, 5 - newAttempts);
+
+                return res.status(401).json({ 
+                    message: 'Código inválido ou expirado',
+                    attemptsRemaining: attemptsRemaining
+                });
+            }
+
+            // Código válido - gerar device token e registrar como confiável
+            const deviceToken = deviceVerificationService.generateDeviceToken();
+            
+            await deviceVerificationService.trustDevice(
+                agency.id,
+                deviceToken,
+                ipAddress,
+                userAgent
+            );
+
+            // Buscar dados completos da agência
+            const fullAgency = await agencyService.findById(agency.id);
+            const balance = await agencyService.getBalance(agency.id);
+
+            if (!fullAgency) {
+                return res.status(404).json({ message: 'Agência não encontrada' });
+            }
+
+            // Gerar token JWT
+            const jwtSecret: string = process.env.JWT_SECRET || 'secret';
+            const jwtExpire: string = process.env.JWT_EXPIRE || '30d';
+
+            // @ts-ignore - expiresIn aceita string mas o tipo está muito restritivo
+            const signOptions: jwt.SignOptions = { expiresIn: jwtExpire };
+            const token = jwt.sign(
+                { 
+                    id: fullAgency.id, 
+                    email: fullAgency.email, 
+                    role: 'agency',
+                    agencyId: fullAgency.id 
+                },
+                jwtSecret,
+                signOptions
+            );
+
+            // Configurar cookie HttpOnly, Secure, SameSite=Strict
+            const isProduction = process.env.NODE_ENV === 'production';
+            res.cookie('device_token', deviceToken, {
+                httpOnly: true,
+                secure: isProduction, // Apenas HTTPS em produção
+                sameSite: 'strict',
+                maxAge: 30 * 24 * 60 * 60 * 1000 // 30 dias em milissegundos
+            });
+
+            res.status(200).json({
+                id: fullAgency.id,
+                name: fullAgency.name,
+                email: fullAgency.email,
+                balance: balance,
+                active: fullAgency.active,
+                token
+            });
+        } catch (error) {
+            if (error instanceof z.ZodError) {
+                return res.status(400).json({ message: 'Dados inválidos', errors: error.issues });
+            }
+            console.error('Erro na verificação de código:', error);
+            res.status(500).json({ message: 'Erro no servidor' });
+        }
+    },
+
+    async getMe(req: Request, res: Response) {
+        try {
+            if (!req.agency) {
+                return res.status(401).json({ message: 'Unauthorized' });
+            }
+
+            const agency = await agencyService.findById(req.agency.id);
+            if (!agency) {
+                return res.status(404).json({ message: 'Agency not found' });
+            }
+
+            const address = await addressService.findByAgencyId(req.agency.id);
+            const balance = await agencyService.getBalance(req.agency.id);
+
+            res.json({
+                ...agency,
+                balance,
+                address
+            });
+        } catch (error) {
+            console.error(error);
+            res.status(500).json({ message: 'Internal server error' });
+        }
+    },
+
+    async updateMe(req: Request, res: Response) {
+        try {
+            if (!req.agency) {
+                return res.status(401).json({ message: 'Unauthorized' });
+            }
+
+            const data = z.object({
+                name: z.string().min(1).optional(),
+                phone: z.string().optional(),
+                address: addressSchema.optional()
+            }).parse(req.body);
+
+            // Atualizar dados básicos
+            if (data.name || data.phone) {
+                await agencyService.update(req.agency.id, {
+                    name: data.name,
+                    phone: data.phone
+                });
+            }
+
+            // Atualizar endereço se fornecido
+            if (data.address) {
+                const existingAddress = await addressService.findByAgencyId(req.agency.id);
+                if (existingAddress) {
+                    await addressService.update(req.agency.id, data.address);
+                } else {
+                    await addressService.create(req.agency.id, data.address);
+                }
+            }
+
+            res.json({ success: true });
+        } catch (error) {
+            if (error instanceof z.ZodError) {
+                return res.status(400).json({ message: 'Invalid input', errors: error.issues });
+            }
+            console.error(error);
+            res.status(500).json({ message: 'Internal server error' });
+        }
+    },
+
+    async changePassword(req: Request, res: Response) {
+        try {
+            if (!req.agency) {
+                return res.status(401).json({ message: 'Unauthorized' });
+            }
+
+            const { currentPassword, newPassword } = z.object({
+                currentPassword: z.string().min(1),
+                newPassword: z.string().min(6)
+            }).parse(req.body);
+
+            // Buscar agência
+            const agency = await agencyService.findById(req.agency.id);
+            if (!agency || !agency.password) {
+                return res.status(404).json({ message: 'Agency not found' });
+            }
+
+            // Verificar senha atual
+            const currentHash = crypto.createHash('md5').update(currentPassword).digest('hex');
+            const storedPassword = (agency.password || '').trim().toLowerCase();
+            const inputHash = currentHash.toLowerCase();
+
+            if (inputHash !== storedPassword) {
+                return res.status(401).json({ message: 'Current password is incorrect' });
+            }
+
+            // Atualizar senha
+            const newHash = crypto.createHash('md5').update(newPassword).digest('hex');
+            await query(
+                'UPDATE agencies SET password = ?, updated_at = NOW() WHERE id = ?',
+                [newHash, req.agency.id]
+            );
+
+            res.json({ success: true });
+        } catch (error) {
+            if (error instanceof z.ZodError) {
+                return res.status(400).json({ message: 'Invalid input', errors: error.issues });
+            }
+            console.error(error);
+            res.status(500).json({ message: 'Internal server error' });
         }
     }
 };

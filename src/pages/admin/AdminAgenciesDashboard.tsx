@@ -16,6 +16,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Search, Eye, Building2 } from "lucide-react";
 import { agencyService } from "@/services/api";
 import { toast } from "sonner";
+import { useTableSort } from "@/hooks/useTableSort";
 
 interface Agency {
   id: number;
@@ -37,6 +38,8 @@ const AdminAgenciesDashboard = () => {
   const [filteredAgencies, setFilteredAgencies] = useState<Agency[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
+  
+  const { sortedData, handleSort, getSortIcon } = useTableSort(filteredAgencies);
 
   const loadAgencies = async () => {
     try {
@@ -119,17 +122,47 @@ const AdminAgenciesDashboard = () => {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Nome</TableHead>
-                  <TableHead>CNPJ</TableHead>
-                  <TableHead>Email</TableHead>
-                  <TableHead>Filial</TableHead>
-                  <TableHead className="text-right">Pontos Atuais</TableHead>
-                  <TableHead>Status</TableHead>
+                  <TableHead 
+                    className="cursor-pointer hover:bg-muted/50 select-none"
+                    onClick={() => handleSort("name")}
+                  >
+                    Nome{getSortIcon("name")}
+                  </TableHead>
+                  <TableHead 
+                    className="cursor-pointer hover:bg-muted/50 select-none"
+                    onClick={() => handleSort("cnpj")}
+                  >
+                    CNPJ{getSortIcon("cnpj")}
+                  </TableHead>
+                  <TableHead 
+                    className="cursor-pointer hover:bg-muted/50 select-none"
+                    onClick={() => handleSort("email")}
+                  >
+                    Email{getSortIcon("email")}
+                  </TableHead>
+                  <TableHead 
+                    className="cursor-pointer hover:bg-muted/50 select-none"
+                    onClick={() => handleSort("branch")}
+                  >
+                    Filial{getSortIcon("branch")}
+                  </TableHead>
+                  <TableHead 
+                    className="text-right cursor-pointer hover:bg-muted/50 select-none"
+                    onClick={() => handleSort("balance")}
+                  >
+                    Pontos Atuais{getSortIcon("balance")}
+                  </TableHead>
+                  <TableHead 
+                    className="cursor-pointer hover:bg-muted/50 select-none"
+                    onClick={() => handleSort("active")}
+                  >
+                    Status{getSortIcon("active")}
+                  </TableHead>
                   <TableHead className="text-right">Ações</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredAgencies.map((agency) => (
+                {sortedData.map((agency) => (
                   <TableRow key={agency.id}>
                     <TableCell className="font-medium">{agency.name}</TableCell>
                     <TableCell className="font-mono text-sm">

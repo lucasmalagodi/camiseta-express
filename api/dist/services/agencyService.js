@@ -39,6 +39,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.agencyService = void 0;
 const db_1 = require("../config/db");
 const addressService_1 = require("./addressService");
+const legalDocumentService_1 = require("./legalDocumentService");
 const crypto_1 = __importDefault(require("crypto"));
 // Função auxiliar para normalizar CNPJ (remove formatação)
 function normalizeCnpj(cnpj) {
@@ -58,13 +59,12 @@ exports.agencyService = {
             throw new Error('Agency with this CNPJ already exists');
         }
         // Verificar se existe pelo menos um import item com este CNPJ
+        // Não bloqueia mais o cadastro se não encontrar - permite cadastro livre
+        // Quando subir a planilha com pontos, eles serão computados automaticamente
         const normalizedCnpj = normalizeCnpj(data.cnpj);
         const importItems = await (0, db_1.query)(`SELECT COUNT(*) as count FROM agency_points_import_items 
              WHERE REPLACE(REPLACE(REPLACE(REPLACE(cnpj, '.', ''), '/', ''), '-', ''), ' ', '') = ?`, [normalizedCnpj]);
         const count = Array.isArray(importItems) && importItems.length > 0 ? Number(importItems[0].count) : 0;
-        if (count === 0) {
-            throw new Error('No points import found for this CNPJ. Agency cannot be created.');
-        }
         // Buscar branch e executive_name mais comuns dos imports
         const branchResults = await (0, db_1.query)(`SELECT branch, COUNT(*) as count 
              FROM agency_points_import_items 
@@ -144,14 +144,14 @@ exports.agencyService = {
         await (0, db_1.query)('UPDATE agencies SET active = false, updated_at = NOW() WHERE id = ?', [id]);
     },
     async findById(id) {
-        const results = await (0, db_1.query)('SELECT id, cnpj, name, email, phone, branch, executive_name, active, created_at as createdAt, updated_at as updatedAt FROM agencies WHERE id = ?', [id]);
+        const results = await (0, db_1.query)('SELECT id, cnpj, name, email, phone, branch, branch_id as branchId, executive_name, executive_id as executiveId, active, created_at as createdAt, updated_at as updatedAt FROM agencies WHERE id = ?', [id]);
         if (Array.isArray(results) && results.length > 0) {
             return results[0];
         }
         return null;
     },
     async findByCnpj(cnpj) {
-        const results = await (0, db_1.query)('SELECT id, cnpj, name, email, phone, branch, executive_name, active, created_at as createdAt, updated_at as updatedAt FROM agencies WHERE cnpj = ?', [cnpj]);
+        const results = await (0, db_1.query)('SELECT id, cnpj, name, email, phone, branch, branch_id as branchId, executive_name, executive_id as executiveId, active, created_at as createdAt, updated_at as updatedAt FROM agencies WHERE cnpj = ?', [cnpj]);
         if (Array.isArray(results) && results.length > 0) {
             return results[0];
         }
@@ -165,7 +165,7 @@ exports.agencyService = {
         return null;
     },
     async findAll(active) {
-        let sql = 'SELECT id, cnpj, name, email, phone, branch, executive_name, active, created_at as createdAt, updated_at as updatedAt FROM agencies';
+        let sql = 'SELECT id, cnpj, name, email, phone, branch, branch_id as branchId, executive_name, executive_id as executiveId, active, created_at as createdAt, updated_at as updatedAt FROM agencies';
         const values = [];
         if (active !== undefined) {
             sql += ' WHERE active = ?';
@@ -282,14 +282,13 @@ exports.agencyService = {
                 throw new Error('Agency already exists');
             }
             // 3. Verificar se existe pelo menos um import item (buscar normalizado)
+            // Não bloqueia mais o cadastro se não encontrar - permite cadastro livre
+            // Quando subir a planilha com pontos, eles serão computados automaticamente
             const [importItemsResults] = await connection.execute(`SELECT COUNT(*) as count FROM agency_points_import_items 
                  WHERE REPLACE(REPLACE(REPLACE(REPLACE(cnpj, '.', ''), '/', ''), '-', ''), ' ', '') = ?`, [normalizedCnpj]);
             const importCount = Array.isArray(importItemsResults) && importItemsResults.length > 0
                 ? Number(importItemsResults[0].count)
                 : 0;
-            if (importCount === 0) {
-                throw new Error('CNPJ has no imported points');
-            }
             // 4. Hash da senha se fornecida (MD5)
             let hashedPassword = null;
             if (data.password) {
@@ -334,6 +333,28 @@ exports.agencyService = {
                         item.points,
                         'Initial points import'
                     ]);
+                }
+            }
+            // 9. Verificar e registrar aceitação de documentos legais obrigatórios
+            // Buscar documentos ativos obrigatórios (TERMS e PRIVACY)
+            const activeTerms = await legalDocumentService_1.legalDocumentService.findActiveByType('TERMS');
+            const activePrivacy = await legalDocumentService_1.legalDocumentService.findActiveByType('PRIVACY');
+            if (activeTerms || activePrivacy) {
+                // Validar que os documentos obrigatórios foram aceitos
+                const acceptedIds = data.acceptedLegalDocuments || [];
+                if (activeTerms && !acceptedIds.includes(activeTerms.id)) {
+                    throw new Error('Terms of service must be accepted');
+                }
+                if (activePrivacy && !acceptedIds.includes(activePrivacy.id)) {
+                    throw new Error('Privacy policy must be accepted');
+                }
+                // Registrar aceitações
+                for (const docId of acceptedIds) {
+                    // Verificar se o documento existe e está ativo
+                    const doc = await legalDocumentService_1.legalDocumentService.findById(docId);
+                    if (doc && doc.active) {
+                        await connection.execute('INSERT INTO agency_acceptances (agency_id, legal_document_id, accepted_at, created_at) VALUES (?, ?, NOW(), NOW()) ON DUPLICATE KEY UPDATE accepted_at = NOW()', [agencyId, docId]);
+                    }
                 }
             }
             await connection.commit();

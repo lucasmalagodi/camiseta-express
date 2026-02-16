@@ -1,5 +1,6 @@
 import { query, pool } from '../config/db';
 import { Order, OrderItem, CreateOrderDto } from '../types';
+import { productVariantService } from './productVariantService';
 
 export const orderService = {
     async create(agencyId: number, data: CreateOrderDto): Promise<number> {
@@ -11,7 +12,7 @@ export const orderService = {
 
             // Calcular total de pontos necessários
             let totalPoints = 0;
-            const orderItemsData: Array<{ productId: number; productPriceId: number; quantity: number; pointsPerUnit: number }> = [];
+            const orderItemsData: Array<{ productId: number; productPriceId: number; variantId: number | null; quantity: number; pointsPerUnit: number }> = [];
 
             for (const item of data.items) {
                 // Buscar produto usando connection da transação (com lock para evitar race conditions)
@@ -31,9 +32,32 @@ export const orderService = {
                 }
 
                 // Validar estoque disponível
-                const availableStock = Number(product.quantity) || 0;
-                if (availableStock < item.quantity) {
-                    throw new Error(`Insufficient stock for product ${product.name || item.productId}. Available: ${availableStock}, Requested: ${item.quantity}`);
+                // Se tem variantId, validar estoque da variação específica
+                if (item.variantId) {
+                    const [variantResults] = await connection.execute(
+                        'SELECT id, product_id as productId, model, size, stock, active FROM product_variants WHERE id = ? AND product_id = ? FOR UPDATE',
+                        [item.variantId, item.productId]
+                    ) as any[];
+
+                    if (!Array.isArray(variantResults) || variantResults.length === 0) {
+                        throw new Error(`Product variant ${item.variantId} not found for product ${item.productId}`);
+                    }
+
+                    const variant = variantResults[0];
+                    if (!variant.active) {
+                        throw new Error(`Product variant ${variant.model} - ${variant.size} is inactive`);
+                    }
+
+                    const availableStock = Number(variant.stock) || 0;
+                    if (availableStock < item.quantity) {
+                        throw new Error(`Insufficient stock for product ${product.name || item.productId} variant ${variant.model} - ${variant.size}. Available: ${availableStock}, Requested: ${item.quantity}`);
+                    }
+                } else {
+                    // Validar estoque geral do produto (sem variação)
+                    const availableStock = Number(product.quantity) || 0;
+                    if (availableStock < item.quantity) {
+                        throw new Error(`Insufficient stock for product ${product.name || item.productId}. Available: ${availableStock}, Requested: ${item.quantity}`);
+                    }
                 }
 
                 // Buscar preços ativos usando connection da transação
@@ -112,6 +136,7 @@ export const orderService = {
                         orderItemsData.push({
                             productId: item.productId,
                             productPriceId: price.id,
+                            variantId: item.variantId || null,
                             quantity: unitsForThisLot,
                             pointsPerUnit: pricePerUnit
                         });
@@ -153,15 +178,22 @@ export const orderService = {
             // Criar order items e decrementar estoque atomicamente
             for (const item of orderItemsData) {
                 await connection.execute(
-                    'INSERT INTO order_items (order_id, product_id, product_price_id, quantity, points_per_unit) VALUES (?, ?, ?, ?, ?)',
-                    [orderId, item.productId, item.productPriceId, item.quantity, item.pointsPerUnit]
+                    'INSERT INTO order_items (order_id, product_id, product_price_id, product_variant_id, quantity, points_per_unit) VALUES (?, ?, ?, ?, ?, ?)',
+                    [orderId, item.productId, item.productPriceId, item.variantId, item.quantity, item.pointsPerUnit]
                 );
 
-                // Decrementar estoque do produto
-                await connection.execute(
-                    'UPDATE products SET quantity = quantity - ?, updated_at = NOW() WHERE id = ?',
-                    [item.quantity, item.productId]
-                );
+                // Decrementar estoque: se tem variantId, decrementar da variação, senão do produto geral
+                if (item.variantId) {
+                    await connection.execute(
+                        'UPDATE product_variants SET stock = stock - ?, updated_at = NOW() WHERE id = ? AND stock >= ?',
+                        [item.quantity, item.variantId, item.quantity]
+                    );
+                } else {
+                    await connection.execute(
+                        'UPDATE products SET quantity = quantity - ?, updated_at = NOW() WHERE id = ?',
+                        [item.quantity, item.productId]
+                    );
+                }
             }
 
             // Criar ledger entry (debit negativo)
@@ -184,8 +216,9 @@ export const orderService = {
 
             await connection.commit();
 
-            // Enviar emails de notificação (não bloquear se falhar)
+            // Enviar emails de notificação usando NotificationService (não bloquear se falhar)
             try {
+                const { notificationService } = await import('./notificationService');
                 const { emailService } = await import('./emailService');
                 const { agencyService } = await import('./agencyService');
                 const agency = await agencyService.findById(agencyId);
@@ -193,7 +226,7 @@ export const orderService = {
                 const orderUrl = `${frontendUrl}/admin/pedidos/${orderId}`;
                 
                 if (agency) {
-                    // Enviar email para admins
+                    // Enviar email para admins (mantém compatibilidade com sistema antigo)
                     await emailService.sendNewOrderNotification(
                         orderId,
                         agency.name,
@@ -201,41 +234,14 @@ export const orderService = {
                         orderUrl
                     );
 
-                    // Buscar e enviar email para executivo relacionado
-                    try {
-                        // Normalizar CNPJ para buscar (remover formatação)
-                        const normalizedCnpj = agency.cnpj.replace(/[^\d]/g, '');
-                        
-                        // Buscar executive_name na tabela agency_points_import_items pelo CNPJ
-                        const { query } = await import('../config/db');
-                        const importItems = await query(
-                            'SELECT executive_name FROM agency_points_import_items WHERE REPLACE(REPLACE(REPLACE(REPLACE(cnpj, ".", ""), "/", ""), "-", ""), " ", "") = ? LIMIT 1',
-                            [normalizedCnpj]
-                        ) as any[];
-
-                        if (Array.isArray(importItems) && importItems.length > 0) {
-                            const executiveName = importItems[0].executive_name;
-                            
-                            // Buscar executivo pelo código (que corresponde ao executive_name)
-                            const { executiveService } = await import('./executiveService');
-                            const executive = await executiveService.findByExecutiveName(executiveName);
-                            
-                            if (executive && executive.active) {
-                                await emailService.sendExecutiveOrderNotification(
-                                    orderId,
-                                    agency.name,
-                                    agency.cnpj,
-                                    totalPoints,
-                                    orderUrl,
-                                    executive.email,
-                                    executive.name || undefined
-                                );
-                            }
-                        }
-                    } catch (executiveEmailError) {
-                        console.error('Error sending executive order notification email:', executiveEmailError);
-                        // Não bloquear o fluxo se o envio de email ao executivo falhar
-                    }
+                    // Enviar email usando roteamento dinâmico baseado em agency/executive/branch
+                    await notificationService.sendOrderNotification(
+                        orderId,
+                        agencyId,
+                        agency.name,
+                        totalPoints,
+                        orderUrl
+                    );
                 }
             } catch (emailError) {
                 console.error('Error sending order notification emails:', emailError);
@@ -272,13 +278,39 @@ export const orderService = {
         return Array.isArray(results) ? results : [];
     },
 
-    async findItemsByOrderId(orderId: number): Promise<OrderItem[]> {
+    async findItemsByOrderId(orderId: number): Promise<Array<OrderItem & { productName: string; model: string | null; size: string | null }>> {
         const results = await query(
-            'SELECT id, order_id as orderId, product_id as productId, product_price_id as productPriceId, quantity, points_per_unit as pointsPerUnit FROM order_items WHERE order_id = ?',
+            `SELECT 
+                oi.id,
+                oi.order_id as orderId,
+                oi.product_id as productId,
+                oi.product_price_id as productPriceId,
+                oi.product_variant_id as productVariantId,
+                oi.quantity,
+                oi.points_per_unit as pointsPerUnit,
+                p.name as productName,
+                COALESCE(pv.model, NULL) as model,
+                COALESCE(pv.size, NULL) as size
+             FROM order_items oi
+             INNER JOIN products p ON oi.product_id = p.id
+             LEFT JOIN product_variants pv ON oi.product_variant_id = pv.id
+             WHERE oi.order_id = ?
+             ORDER BY oi.id ASC`,
             [orderId]
-        ) as OrderItem[];
+        ) as any[];
 
-        return Array.isArray(results) ? results : [];
+        return Array.isArray(results) ? results.map((r: any) => ({
+            id: Number(r.id),
+            orderId: Number(r.orderId),
+            productId: Number(r.productId),
+            productPriceId: r.productPriceId ? Number(r.productPriceId) : null,
+            productVariantId: r.productVariantId ? Number(r.productVariantId) : null,
+            quantity: Number(r.quantity),
+            pointsPerUnit: Number(r.pointsPerUnit),
+            productName: r.productName,
+            model: r.model || null,
+            size: r.size || null
+        })) : [];
     },
 
     async findAll(): Promise<Order[]> {
@@ -356,6 +388,84 @@ export const orderService = {
         return {
             totalUnits,
             purchasesByLot
+        };
+    },
+
+    // Buscar pedidos da agência com contagem de itens
+    async findMyOrders(agencyId: number): Promise<Array<Order & { itemsCount: number }>> {
+        const results = await query(
+            `SELECT 
+                o.id,
+                o.agency_id as agencyId,
+                o.total_points as totalPoints,
+                o.status,
+                o.created_at as createdAt,
+                o.updated_at as updatedAt,
+                COUNT(oi.id) as itemsCount
+             FROM orders o
+             LEFT JOIN order_items oi ON o.id = oi.order_id
+             WHERE o.agency_id = ?
+             GROUP BY o.id
+             ORDER BY o.created_at DESC`,
+            [agencyId]
+        ) as any[];
+
+        return Array.isArray(results) ? results.map((r: any) => ({
+            id: Number(r.id),
+            agencyId: Number(r.agencyId),
+            totalPoints: Number(r.totalPoints),
+            status: r.status,
+            createdAt: r.createdAt,
+            updatedAt: r.updatedAt,
+            itemsCount: Number(r.itemsCount) || 0
+        })) : [];
+    },
+
+    // Buscar pedido por ID com validação de agência e itens completos
+    async findMyOrderById(orderId: number, agencyId: number): Promise<(Order & { items: Array<OrderItem & { productName: string; model: string | null; size: string | null }> }) | null> {
+        // Buscar pedido e validar ownership
+        const order = await this.findById(orderId);
+        if (!order || order.agencyId !== agencyId) {
+            return null;
+        }
+
+        // Buscar itens com informações do produto e variante
+        const itemsResults = await query(
+            `SELECT 
+                oi.id,
+                oi.order_id as orderId,
+                oi.product_id as productId,
+                oi.product_price_id as productPriceId,
+                oi.product_variant_id as productVariantId,
+                oi.quantity,
+                oi.points_per_unit as pointsPerUnit,
+                p.name as productName,
+                COALESCE(pv.model, NULL) as model,
+                COALESCE(pv.size, NULL) as size
+             FROM order_items oi
+             INNER JOIN products p ON oi.product_id = p.id
+             LEFT JOIN product_variants pv ON oi.product_variant_id = pv.id
+             WHERE oi.order_id = ?
+             ORDER BY oi.id ASC`,
+            [orderId]
+        ) as any[];
+
+        const items = Array.isArray(itemsResults) ? itemsResults.map((r: any) => ({
+            id: Number(r.id),
+            orderId: Number(r.orderId),
+            productId: Number(r.productId),
+            productPriceId: r.productPriceId ? Number(r.productPriceId) : null,
+            productVariantId: r.productVariantId ? Number(r.productVariantId) : null,
+            quantity: Number(r.quantity),
+            pointsPerUnit: Number(r.pointsPerUnit),
+            productName: r.productName,
+            model: r.model || null,
+            size: r.size || null
+        })) : [];
+
+        return {
+            ...order,
+            items
         };
     }
 };

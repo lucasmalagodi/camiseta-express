@@ -7,11 +7,13 @@ const createExecutiveSchema = zod_1.z.object({
     code: zod_1.z.string().min(1, 'Código é obrigatório'),
     email: zod_1.z.string().email('Email inválido'),
     name: zod_1.z.string().optional(),
+    branchId: zod_1.z.number().int().positive().nullable().optional(),
 });
 const updateExecutiveSchema = zod_1.z.object({
     code: zod_1.z.string().min(1, 'Código é obrigatório').optional(),
     email: zod_1.z.string().email('Email inválido').optional(),
     name: zod_1.z.string().optional(),
+    branchId: zod_1.z.number().int().positive().nullable().optional(),
     active: zod_1.z.boolean().optional(),
 });
 exports.executiveController = {

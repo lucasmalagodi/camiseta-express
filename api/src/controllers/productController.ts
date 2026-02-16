@@ -3,11 +3,18 @@ import { z } from 'zod';
 import { productService } from '../services/productService';
 import { categoryService } from '../services/categoryService';
 
+const variantSchema = z.object({
+    model: z.enum(['MASCULINO', 'FEMININO', 'UNISEX']),
+    size: z.string().min(1),
+    stock: z.number().int().min(0)
+});
+
 const createProductSchema = z.object({
     categoryId: z.number().int().positive(),
     name: z.string().min(1),
     description: z.string(),
-    quantity: z.number().int().min(0).optional()
+    quantity: z.number().int().min(0).optional(),
+    variants: z.array(variantSchema).optional()
 });
 
 const updateProductSchema = z.object({
@@ -15,7 +22,8 @@ const updateProductSchema = z.object({
     name: z.string().min(1).optional(),
     description: z.string().optional(),
     quantity: z.number().int().min(0).optional(),
-    active: z.boolean().optional()
+    active: z.boolean().optional(),
+    variants: z.array(variantSchema).optional()
 });
 
 export const productController = {

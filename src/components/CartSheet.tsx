@@ -11,7 +11,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Minus, Plus, Trash2, ShoppingBag } from "lucide-react";
 import { useIsMobile } from "@/hooks/use-mobile";
-import { formatPoints } from "@/lib/utils";
+import { formatPoints, formatModelName } from "@/lib/utils";
 
 interface CartSheetProps {
   open: boolean;
@@ -82,6 +82,11 @@ const CartSheet = ({ open, onOpenChange }: CartSheetProps) => {
                       <h3 className="font-medium text-foreground">
                         {item.name}
                       </h3>
+                      {item.variantInfo && (
+                        <p className="text-xs text-muted-foreground mt-1">
+                          {formatModelName(item.variantInfo.model)} - {item.variantInfo.size}
+                        </p>
+                      )}
                       {item.lotDistribution && item.lotDistribution.length > 0 ? (
                         <div className="mt-1 space-y-0.5">
                           {item.lotDistribution.map((lot, idx) => (

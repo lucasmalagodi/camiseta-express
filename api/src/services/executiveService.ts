@@ -5,6 +5,7 @@ export interface Executive {
     code: string;
     email: string;
     name?: string;
+    branchId?: number | null;
     active: boolean;
     createdAt: Date;
     updatedAt: Date;
@@ -14,19 +15,21 @@ export interface CreateExecutiveDto {
     code: string;
     email: string;
     name?: string;
+    branchId?: number | null;
 }
 
 export interface UpdateExecutiveDto {
     code?: string;
     email?: string;
     name?: string;
+    branchId?: number | null;
     active?: boolean;
 }
 
 export const executiveService = {
     async findAll(): Promise<Executive[]> {
         const results = await query(
-            'SELECT id, code, email, name, active, created_at as createdAt, updated_at as updatedAt FROM executives ORDER BY code ASC'
+            'SELECT id, code, email, name, branch_id as branchId, active, created_at as createdAt, updated_at as updatedAt FROM executives ORDER BY code ASC'
         ) as Executive[];
 
         return Array.isArray(results) ? results : [];
@@ -34,7 +37,7 @@ export const executiveService = {
 
     async findActive(): Promise<Executive[]> {
         const results = await query(
-            'SELECT id, code, email, name, active, created_at as createdAt, updated_at as updatedAt FROM executives WHERE active = true ORDER BY code ASC'
+            'SELECT id, code, email, name, branch_id as branchId, active, created_at as createdAt, updated_at as updatedAt FROM executives WHERE active = true ORDER BY code ASC'
         ) as Executive[];
 
         return Array.isArray(results) ? results : [];
@@ -42,7 +45,7 @@ export const executiveService = {
 
     async findById(id: number): Promise<Executive | null> {
         const results = await query(
-            'SELECT id, code, email, name, active, created_at as createdAt, updated_at as updatedAt FROM executives WHERE id = ?',
+            'SELECT id, code, email, name, branch_id as branchId, active, created_at as createdAt, updated_at as updatedAt FROM executives WHERE id = ?',
             [id]
         ) as Executive[];
 
@@ -54,7 +57,7 @@ export const executiveService = {
 
     async findByCode(code: string): Promise<Executive | null> {
         const results = await query(
-            'SELECT id, code, email, name, active, created_at as createdAt, updated_at as updatedAt FROM executives WHERE code = ? AND active = true',
+            'SELECT id, code, email, name, branch_id as branchId, active, created_at as createdAt, updated_at as updatedAt FROM executives WHERE code = ? AND active = true',
             [code]
         ) as Executive[];
 
@@ -66,7 +69,7 @@ export const executiveService = {
 
     async findByEmail(email: string): Promise<Executive | null> {
         const results = await query(
-            'SELECT id, code, email, name, active, created_at as createdAt, updated_at as updatedAt FROM executives WHERE email = ?',
+            'SELECT id, code, email, name, branch_id as branchId, active, created_at as createdAt, updated_at as updatedAt FROM executives WHERE email = ?',
             [email]
         ) as Executive[];
 
@@ -90,8 +93,8 @@ export const executiveService = {
         }
 
         const result = await query(
-            'INSERT INTO executives (code, email, name, active) VALUES (?, ?, ?, true)',
-            [data.code.trim(), data.email.trim().toLowerCase(), data.name?.trim() || null]
+            'INSERT INTO executives (code, email, name, branch_id, active) VALUES (?, ?, ?, ?, true)',
+            [data.code.trim(), data.email.trim().toLowerCase(), data.name?.trim() || null, data.branchId || null]
         ) as any;
 
         return result.insertId;
@@ -126,6 +129,11 @@ export const executiveService = {
             values.push(data.name.trim() || null);
         }
 
+        if (data.branchId !== undefined) {
+            updates.push('branch_id = ?');
+            values.push(data.branchId || null);
+        }
+
         if (data.active !== undefined) {
             updates.push('active = ?');
             values.push(data.active);
@@ -155,7 +163,7 @@ export const executiveService = {
     async findByExecutiveName(executiveName: string): Promise<Executive | null> {
         // O código do executivo deve corresponder ao executive_name
         const results = await query(
-            'SELECT id, code, email, name, active, created_at as createdAt, updated_at as updatedAt FROM executives WHERE code = ? AND active = true',
+            'SELECT id, code, email, name, branch_id as branchId, active, created_at as createdAt, updated_at as updatedAt FROM executives WHERE code = ? AND active = true',
             [executiveName.trim()]
         ) as Executive[];
 
@@ -163,6 +171,16 @@ export const executiveService = {
             return results[0];
         }
         return null;
+    },
+
+    // Buscar executivos por branch_id
+    async findByBranchId(branchId: number): Promise<Executive[]> {
+        const results = await query(
+            'SELECT id, code, email, name, branch_id as branchId, active, created_at as createdAt, updated_at as updatedAt FROM executives WHERE branch_id = ? AND active = true ORDER BY code ASC',
+            [branchId]
+        ) as Executive[];
+
+        return Array.isArray(results) ? results : [];
     },
 
     // Buscar todos os executive_name únicos da tabela agency_points_import_items

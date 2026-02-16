@@ -4,29 +4,29 @@ exports.executiveService = void 0;
 const db_1 = require("../config/db");
 exports.executiveService = {
     async findAll() {
-        const results = await (0, db_1.query)('SELECT id, code, email, name, active, created_at as createdAt, updated_at as updatedAt FROM executives ORDER BY code ASC');
+        const results = await (0, db_1.query)('SELECT id, code, email, name, branch_id as branchId, active, created_at as createdAt, updated_at as updatedAt FROM executives ORDER BY code ASC');
         return Array.isArray(results) ? results : [];
     },
     async findActive() {
-        const results = await (0, db_1.query)('SELECT id, code, email, name, active, created_at as createdAt, updated_at as updatedAt FROM executives WHERE active = true ORDER BY code ASC');
+        const results = await (0, db_1.query)('SELECT id, code, email, name, branch_id as branchId, active, created_at as createdAt, updated_at as updatedAt FROM executives WHERE active = true ORDER BY code ASC');
         return Array.isArray(results) ? results : [];
     },
     async findById(id) {
-        const results = await (0, db_1.query)('SELECT id, code, email, name, active, created_at as createdAt, updated_at as updatedAt FROM executives WHERE id = ?', [id]);
+        const results = await (0, db_1.query)('SELECT id, code, email, name, branch_id as branchId, active, created_at as createdAt, updated_at as updatedAt FROM executives WHERE id = ?', [id]);
         if (Array.isArray(results) && results.length > 0) {
             return results[0];
         }
         return null;
     },
     async findByCode(code) {
-        const results = await (0, db_1.query)('SELECT id, code, email, name, active, created_at as createdAt, updated_at as updatedAt FROM executives WHERE code = ? AND active = true', [code]);
+        const results = await (0, db_1.query)('SELECT id, code, email, name, branch_id as branchId, active, created_at as createdAt, updated_at as updatedAt FROM executives WHERE code = ? AND active = true', [code]);
         if (Array.isArray(results) && results.length > 0) {
             return results[0];
         }
         return null;
     },
     async findByEmail(email) {
-        const results = await (0, db_1.query)('SELECT id, code, email, name, active, created_at as createdAt, updated_at as updatedAt FROM executives WHERE email = ?', [email]);
+        const results = await (0, db_1.query)('SELECT id, code, email, name, branch_id as branchId, active, created_at as createdAt, updated_at as updatedAt FROM executives WHERE email = ?', [email]);
         if (Array.isArray(results) && results.length > 0) {
             return results[0];
         }
@@ -43,7 +43,7 @@ exports.executiveService = {
         if (existingByEmail) {
             throw new Error('Email já cadastrado');
         }
-        const result = await (0, db_1.query)('INSERT INTO executives (code, email, name, active) VALUES (?, ?, ?, true)', [data.code.trim(), data.email.trim().toLowerCase(), data.name?.trim() || null]);
+        const result = await (0, db_1.query)('INSERT INTO executives (code, email, name, branch_id, active) VALUES (?, ?, ?, ?, true)', [data.code.trim(), data.email.trim().toLowerCase(), data.name?.trim() || null, data.branchId || null]);
         return result.insertId;
     },
     async update(id, data) {
@@ -71,6 +71,10 @@ exports.executiveService = {
             updates.push('name = ?');
             values.push(data.name.trim() || null);
         }
+        if (data.branchId !== undefined) {
+            updates.push('branch_id = ?');
+            values.push(data.branchId || null);
+        }
         if (data.active !== undefined) {
             updates.push('active = ?');
             values.push(data.active);
@@ -88,11 +92,16 @@ exports.executiveService = {
     // Buscar executivo pelo nome (usado para vincular com agency_points_import_items)
     async findByExecutiveName(executiveName) {
         // O código do executivo deve corresponder ao executive_name
-        const results = await (0, db_1.query)('SELECT id, code, email, name, active, created_at as createdAt, updated_at as updatedAt FROM executives WHERE code = ? AND active = true', [executiveName.trim()]);
+        const results = await (0, db_1.query)('SELECT id, code, email, name, branch_id as branchId, active, created_at as createdAt, updated_at as updatedAt FROM executives WHERE code = ? AND active = true', [executiveName.trim()]);
         if (Array.isArray(results) && results.length > 0) {
             return results[0];
         }
         return null;
+    },
+    // Buscar executivos por branch_id
+    async findByBranchId(branchId) {
+        const results = await (0, db_1.query)('SELECT id, code, email, name, branch_id as branchId, active, created_at as createdAt, updated_at as updatedAt FROM executives WHERE branch_id = ? AND active = true ORDER BY code ASC', [branchId]);
+        return Array.isArray(results) ? results : [];
     },
     // Buscar todos os executive_name únicos da tabela agency_points_import_items
     async getUniqueExecutiveNames() {

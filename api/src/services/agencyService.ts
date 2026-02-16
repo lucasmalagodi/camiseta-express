@@ -1,6 +1,7 @@
 import { query, pool } from '../config/db';
 import { Agency, CreateAgencyDto, UpdateAgencyDto } from '../types';
 import { addressService } from './addressService';
+import { legalDocumentService } from './legalDocumentService';
 import crypto from 'crypto';
 
 // Função auxiliar para normalizar CNPJ (remove formatação)
@@ -24,6 +25,8 @@ export const agencyService = {
         }
 
         // Verificar se existe pelo menos um import item com este CNPJ
+        // Não bloqueia mais o cadastro se não encontrar - permite cadastro livre
+        // Quando subir a planilha com pontos, eles serão computados automaticamente
         const normalizedCnpj = normalizeCnpj(data.cnpj);
         const importItems = await query(
             `SELECT COUNT(*) as count FROM agency_points_import_items 
@@ -32,9 +35,6 @@ export const agencyService = {
         ) as any[];
 
         const count = Array.isArray(importItems) && importItems.length > 0 ? Number(importItems[0].count) : 0;
-        if (count === 0) {
-            throw new Error('No points import found for this CNPJ. Agency cannot be created.');
-        }
 
         // Buscar branch e executive_name mais comuns dos imports
         const branchResults = await query(
@@ -156,7 +156,7 @@ export const agencyService = {
 
     async findById(id: number): Promise<Agency | null> {
         const results = await query(
-            'SELECT id, cnpj, name, email, phone, branch, executive_name, active, created_at as createdAt, updated_at as updatedAt FROM agencies WHERE id = ?',
+            'SELECT id, cnpj, name, email, phone, branch, branch_id as branchId, executive_name, executive_id as executiveId, active, created_at as createdAt, updated_at as updatedAt FROM agencies WHERE id = ?',
             [id]
         ) as Agency[];
 
@@ -168,7 +168,7 @@ export const agencyService = {
 
     async findByCnpj(cnpj: string): Promise<Agency | null> {
         const results = await query(
-            'SELECT id, cnpj, name, email, phone, branch, executive_name, active, created_at as createdAt, updated_at as updatedAt FROM agencies WHERE cnpj = ?',
+            'SELECT id, cnpj, name, email, phone, branch, branch_id as branchId, executive_name, executive_id as executiveId, active, created_at as createdAt, updated_at as updatedAt FROM agencies WHERE cnpj = ?',
             [cnpj]
         ) as Agency[];
 
@@ -191,7 +191,7 @@ export const agencyService = {
     },
 
     async findAll(active?: boolean): Promise<Agency[]> {
-        let sql = 'SELECT id, cnpj, name, email, phone, branch, executive_name, active, created_at as createdAt, updated_at as updatedAt FROM agencies';
+        let sql = 'SELECT id, cnpj, name, email, phone, branch, branch_id as branchId, executive_name, executive_id as executiveId, active, created_at as createdAt, updated_at as updatedAt FROM agencies';
         const values: any[] = [];
 
         if (active !== undefined) {
@@ -353,6 +353,8 @@ export const agencyService = {
             }
 
             // 3. Verificar se existe pelo menos um import item (buscar normalizado)
+            // Não bloqueia mais o cadastro se não encontrar - permite cadastro livre
+            // Quando subir a planilha com pontos, eles serão computados automaticamente
             const [importItemsResults] = await connection.execute(
                 `SELECT COUNT(*) as count FROM agency_points_import_items 
                  WHERE REPLACE(REPLACE(REPLACE(REPLACE(cnpj, '.', ''), '/', ''), '-', ''), ' ', '') = ?`,
@@ -362,10 +364,6 @@ export const agencyService = {
             const importCount = Array.isArray(importItemsResults) && importItemsResults.length > 0 
                 ? Number(importItemsResults[0].count) 
                 : 0;
-
-            if (importCount === 0) {
-                throw new Error('CNPJ has no imported points');
-            }
 
             // 4. Hash da senha se fornecida (MD5)
             let hashedPassword = null;
@@ -435,6 +433,36 @@ export const agencyService = {
                             'Initial points import'
                         ]
                     );
+                }
+            }
+
+            // 9. Verificar e registrar aceitação de documentos legais obrigatórios
+            // Buscar documentos ativos obrigatórios (TERMS e PRIVACY)
+            const activeTerms = await legalDocumentService.findActiveByType('TERMS');
+            const activePrivacy = await legalDocumentService.findActiveByType('PRIVACY');
+
+            if (activeTerms || activePrivacy) {
+                // Validar que os documentos obrigatórios foram aceitos
+                const acceptedIds = data.acceptedLegalDocuments || [];
+                
+                if (activeTerms && !acceptedIds.includes(activeTerms.id)) {
+                    throw new Error('Terms of service must be accepted');
+                }
+                
+                if (activePrivacy && !acceptedIds.includes(activePrivacy.id)) {
+                    throw new Error('Privacy policy must be accepted');
+                }
+
+                // Registrar aceitações
+                for (const docId of acceptedIds) {
+                    // Verificar se o documento existe e está ativo
+                    const doc = await legalDocumentService.findById(docId);
+                    if (doc && doc.active) {
+                        await connection.execute(
+                            'INSERT INTO agency_acceptances (agency_id, legal_document_id, accepted_at, created_at) VALUES (?, ?, NOW(), NOW()) ON DUPLICATE KEY UPDATE accepted_at = NOW()',
+                            [agencyId, docId]
+                        );
+                    }
                 }
             }
 

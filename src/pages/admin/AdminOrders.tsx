@@ -17,6 +17,7 @@ import { Search, Eye, Package } from "lucide-react";
 import { orderService } from "@/services/api";
 import { toast } from "sonner";
 import { formatPoints } from "@/lib/utils";
+import { useTableSort } from "@/hooks/useTableSort";
 
 interface Order {
   id: number;
@@ -33,6 +34,8 @@ const AdminOrders = () => {
   const [filteredOrders, setFilteredOrders] = useState<Order[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
+  
+  const { sortedData, handleSort, getSortIcon } = useTableSort(filteredOrders);
 
   const loadOrders = async () => {
     try {
@@ -144,16 +147,41 @@ const AdminOrders = () => {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>ID</TableHead>
-                    <TableHead>Agência ID</TableHead>
-                    <TableHead>Total (pts)</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Data</TableHead>
+                    <TableHead 
+                      className="cursor-pointer hover:bg-muted/50 select-none"
+                      onClick={() => handleSort("id")}
+                    >
+                      ID{getSortIcon("id")}
+                    </TableHead>
+                    <TableHead 
+                      className="cursor-pointer hover:bg-muted/50 select-none"
+                      onClick={() => handleSort("agencyId")}
+                    >
+                      Agência ID{getSortIcon("agencyId")}
+                    </TableHead>
+                    <TableHead 
+                      className="cursor-pointer hover:bg-muted/50 select-none"
+                      onClick={() => handleSort("totalPoints")}
+                    >
+                      Total (pts){getSortIcon("totalPoints")}
+                    </TableHead>
+                    <TableHead 
+                      className="cursor-pointer hover:bg-muted/50 select-none"
+                      onClick={() => handleSort("status")}
+                    >
+                      Status{getSortIcon("status")}
+                    </TableHead>
+                    <TableHead 
+                      className="cursor-pointer hover:bg-muted/50 select-none"
+                      onClick={() => handleSort("createdAt")}
+                    >
+                      Data{getSortIcon("createdAt")}
+                    </TableHead>
                     <TableHead className="text-right">Ações</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredOrders.map((order) => (
+                  {sortedData.map((order) => (
                     <TableRow key={order.id}>
                       <TableCell className="font-medium">#{order.id}</TableCell>
                       <TableCell>{order.agencyId}</TableCell>

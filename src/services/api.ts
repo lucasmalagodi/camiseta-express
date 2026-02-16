@@ -228,6 +228,7 @@ export const productService = {
 
       return {
         id: product.id,
+        variants: product.variants || [],
         codigo: `CAM-${String(product.id).padStart(3, '0')}`,
         nome: product.name,
         descricao: product.description || "",
@@ -405,6 +406,53 @@ export const productPriceService = {
   },
 };
 
+// Variações de Produtos
+export const productVariantService = {
+  async getAll(productId: number) {
+    const response = await fetch(`${getApiUrlValue()}/products/${productId}/variants`, {
+      headers: getPublicHeaders(),
+    });
+    if (!response.ok) throw new Error("Erro ao buscar variações");
+    const data = await response.json();
+    return data.data || [];
+  },
+
+  async create(productId: number, data: { model: 'MASCULINO' | 'FEMININO' | 'UNISEX'; size: string; stock: number }) {
+    const response = await fetch(`${getApiUrlValue()}/products/${productId}/variants`, {
+      method: "POST",
+      headers: getAuthHeaders(),
+      body: JSON.stringify(data),
+    });
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.message || "Erro ao criar variação");
+    }
+    return await response.json();
+  },
+
+  async update(productId: number, variantId: number, data: { model?: 'MASCULINO' | 'FEMININO' | 'UNISEX'; size?: string; stock?: number; active?: boolean }) {
+    const response = await fetch(`${getApiUrlValue()}/products/${productId}/variants/${variantId}`, {
+      method: "PUT",
+      headers: getAuthHeaders(),
+      body: JSON.stringify(data),
+    });
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.message || "Erro ao atualizar variação");
+    }
+    return await response.json();
+  },
+
+  async delete(productId: number, variantId: number) {
+    const response = await fetch(`${getApiUrlValue()}/products/${productId}/variants/${variantId}`, {
+      method: "DELETE",
+      headers: getAuthHeaders(),
+    });
+    if (!response.ok) throw new Error("Erro ao desativar variação");
+    return await response.json();
+  },
+};
+
 // Agency Points Imports
 export const agencyPointsImportService = {
   async getAll() {
@@ -540,6 +588,41 @@ export const agencyService = {
     if (!response.ok) throw new Error("Erro ao buscar balance");
     return await response.json();
   },
+
+  // Agency authenticated endpoints
+  async getMe() {
+    const response = await fetch(`${getApiUrlValue()}/agencies/me`, {
+      headers: getAgencyAuthHeaders(),
+    });
+    if (!response.ok) throw new Error("Erro ao buscar dados da agência");
+    return await response.json();
+  },
+
+  async updateMe(data: { name?: string; phone?: string; address?: any }) {
+    const response = await fetch(`${getApiUrlValue()}/agencies/me`, {
+      method: "PUT",
+      headers: getAgencyAuthHeaders(),
+      body: JSON.stringify(data),
+    });
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.message || "Erro ao atualizar dados");
+    }
+    return await response.json();
+  },
+
+  async changePassword(currentPassword: string, newPassword: string) {
+    const response = await fetch(`${getApiUrlValue()}/agencies/me/change-password`, {
+      method: "POST",
+      headers: getAgencyAuthHeaders(),
+      body: JSON.stringify({ currentPassword, newPassword }),
+    });
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.message || "Erro ao alterar senha");
+    }
+    return await response.json();
+  },
 };
 
 // Agency Points Ledger
@@ -563,7 +646,11 @@ export const agencyRegistrationService = {
     });
     if (!response.ok) {
       if (response.status === 404) {
-        return { eligible: false };
+        return { eligible: false, alreadyExists: false };
+      }
+      if (response.status === 409) {
+        const data = await response.json();
+        return { eligible: false, alreadyExists: true, message: data.message };
       }
       throw new Error("Erro ao validar CNPJ");
     }
@@ -585,6 +672,7 @@ export const agencyRegistrationService = {
       state: string;
     };
     password: string;
+    acceptedLegalDocuments?: number[];
   }) {
     const response = await fetch(`${getApiUrlValue()}/agencies/register`, {
       method: "POST",
@@ -693,6 +781,34 @@ export const orderService = {
     if (!response.ok) throw new Error("Erro ao buscar pedidos");
     const data = await response.json();
     return data.data || [];
+  },
+
+  // Buscar meus pedidos (agência autenticada)
+  async getMyOrders() {
+    const response = await fetch(`${getApiUrlValue()}/agencies/me/orders`, {
+      headers: getAgencyAuthHeaders(),
+    });
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.message || "Erro ao buscar meus pedidos");
+    }
+    const data = await response.json();
+    return data.data || [];
+  },
+
+  // Buscar detalhes do meu pedido (agência autenticada)
+  async getMyOrderById(id: number) {
+    const response = await fetch(`${getApiUrlValue()}/agencies/me/orders/${id}`, {
+      headers: getAgencyAuthHeaders(),
+    });
+    if (!response.ok) {
+      const error = await response.json();
+      if (response.status === 404) {
+        throw new Error("Pedido não encontrado");
+      }
+      throw new Error(error.message || "Erro ao buscar pedido");
+    }
+    return await response.json();
   },
 
   // Listar todos os pedidos (admin)
@@ -826,7 +942,7 @@ export const executiveService = {
     return await response.json();
   },
 
-  async create(data: { code: string; email: string; name?: string }) {
+  async create(data: { code: string; email: string; name?: string; branchId?: number | null }) {
     const response = await fetch(`${getApiUrlValue()}/admin/executives`, {
       method: "POST",
       headers: getAuthHeaders(),
@@ -839,7 +955,7 @@ export const executiveService = {
     return await response.json();
   },
 
-  async update(id: number, data: { code?: string; email?: string; name?: string; active?: boolean }) {
+  async update(id: number, data: { code?: string; email?: string; name?: string; branchId?: number | null; active?: boolean }) {
     const response = await fetch(`${getApiUrlValue()}/admin/executives/${id}`, {
       method: "PUT",
       headers: getAuthHeaders(),
@@ -1324,6 +1440,7 @@ export const reportService = {
     sourceTable: string;
     visualizationType: string;
     config: any;
+    isPublic?: boolean;
   }) {
     const response = await fetch(`${getApiUrlValue()}/admin/reports/reports`, {
       method: "POST",
@@ -1351,6 +1468,7 @@ export const reportService = {
     sourceTable?: string;
     visualizationType?: string;
     config?: any;
+    isPublic?: boolean;
   }) {
     const response = await fetch(`${getApiUrlValue()}/admin/reports/reports/${id}`, {
       method: "PUT",
@@ -1451,7 +1569,7 @@ export const dashboardWidgetService = {
     return data.data;
   },
 
-  async create(widget: { reportId: number; position?: number }) {
+  async create(widget: { reportId: number; position?: number; expanded?: number }) {
     const response = await fetch(`${getApiUrlValue()}/admin/reports/widgets`, {
       method: "POST",
       headers: getAuthHeaders(),
@@ -1465,7 +1583,7 @@ export const dashboardWidgetService = {
     return data.data;
   },
 
-  async update(id: number, widget: { position?: number; active?: boolean }) {
+  async update(id: number, widget: { position?: number; expanded?: number; active?: boolean }) {
     const response = await fetch(`${getApiUrlValue()}/admin/reports/widgets/${id}`, {
       method: "PUT",
       headers: getAuthHeaders(),
@@ -1520,5 +1638,290 @@ export const dashboardWidgetService = {
       }
       throw e;
     }
+  },
+};
+
+// Branches (Filiais)
+export const branchService = {
+  async getAll() {
+    const response = await fetch(`${getApiUrlValue()}/admin/branches`, {
+      headers: getAuthHeaders(),
+    });
+    if (!response.ok) throw new Error("Erro ao buscar filiais");
+    const data = await response.json();
+    return data.data || [];
+  },
+
+  async getUniqueBranchNames() {
+    const response = await fetch(`${getApiUrlValue()}/admin/branches/unique-names`, {
+      headers: getAuthHeaders(),
+    });
+    if (!response.ok) throw new Error("Erro ao buscar nomes de filiais");
+    const data = await response.json();
+    return data.data || [];
+  },
+
+  async getById(id: number) {
+    const response = await fetch(`${getApiUrlValue()}/admin/branches/${id}`, {
+      headers: getAuthHeaders(),
+    });
+    if (!response.ok) throw new Error("Erro ao buscar filial");
+    return await response.json();
+  },
+
+  async create(data: { name: string }) {
+    const response = await fetch(`${getApiUrlValue()}/admin/branches`, {
+      method: "POST",
+      headers: getAuthHeaders(),
+      body: JSON.stringify(data),
+    });
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.message || "Erro ao criar filial");
+    }
+    const result = await response.json();
+    return { id: result.id };
+  },
+
+  async update(id: number, data: { name?: string }) {
+    const response = await fetch(`${getApiUrlValue()}/admin/branches/${id}`, {
+      method: "PUT",
+      headers: getAuthHeaders(),
+      body: JSON.stringify(data),
+    });
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.message || "Erro ao atualizar filial");
+    }
+    return await response.json();
+  },
+
+  async delete(id: number) {
+    const response = await fetch(`${getApiUrlValue()}/admin/branches/${id}`, {
+      method: "DELETE",
+      headers: getAuthHeaders(),
+    });
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.message || "Erro ao deletar filial");
+    }
+    return await response.json();
+  },
+};
+
+// Executive Notification Emails (Emails adicionais de notificação)
+// Legal Documents Service
+export const legalDocumentService = {
+  async getAll() {
+    const response = await fetch(`${getApiUrlValue()}/legal-documents`, {
+      method: "GET",
+      headers: getAuthHeaders(),
+    });
+    if (!response.ok) {
+      throw new Error("Erro ao buscar documentos legais");
+    }
+    return await response.json();
+  },
+
+  async getById(id: number) {
+    const response = await fetch(`${getApiUrlValue()}/legal-documents/agency/${id}`, {
+      method: "GET",
+      headers: getAgencyAuthHeaders(),
+    });
+    if (!response.ok) {
+      throw new Error("Erro ao buscar documento legal");
+    }
+    return await response.json();
+  },
+
+  async getByType(type: 'TERMS' | 'PRIVACY' | 'CAMPAIGN_RULES') {
+    const response = await fetch(`${getApiUrlValue()}/legal-documents/type/${type}`, {
+      method: "GET",
+      headers: getAuthHeaders(),
+    });
+    if (!response.ok) {
+      throw new Error("Erro ao buscar documentos legais");
+    }
+    return await response.json();
+  },
+
+  async getById(id: number) {
+    const response = await fetch(`${getApiUrlValue()}/legal-documents/${id}`, {
+      method: "GET",
+      headers: getAuthHeaders(),
+    });
+    if (!response.ok) {
+      throw new Error("Erro ao buscar documento legal");
+    }
+    return await response.json();
+  },
+
+  async create(data: { type: 'TERMS' | 'PRIVACY' | 'CAMPAIGN_RULES'; content: string; active?: boolean }) {
+    const response = await fetch(`${getApiUrlValue()}/legal-documents`, {
+      method: "POST",
+      headers: getAuthHeaders(),
+      body: JSON.stringify(data),
+    });
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.message || "Erro ao criar documento legal");
+    }
+    return await response.json();
+  },
+
+  async update(id: number, data: { content?: string; active?: boolean }) {
+    const response = await fetch(`${getApiUrlValue()}/legal-documents/${id}`, {
+      method: "PUT",
+      headers: getAuthHeaders(),
+      body: JSON.stringify(data),
+    });
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.message || "Erro ao atualizar documento legal");
+    }
+    return await response.json();
+  },
+
+  async activate(id: number) {
+    const response = await fetch(`${getApiUrlValue()}/legal-documents/${id}/activate`, {
+      method: "POST",
+      headers: getAuthHeaders(),
+    });
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.message || "Erro ao ativar documento legal");
+    }
+    return await response.json();
+  },
+
+  // Public endpoints (for registration)
+  async getActiveDocuments() {
+    const response = await fetch(`${getApiUrlValue()}/legal-documents/public/active`, {
+      method: "GET",
+      headers: getPublicHeaders(),
+    });
+    if (!response.ok) {
+      throw new Error("Erro ao buscar documentos ativos");
+    }
+    return await response.json();
+  },
+
+  async getActiveByType(type: 'TERMS' | 'PRIVACY' | 'CAMPAIGN_RULES') {
+    const response = await fetch(`${getApiUrlValue()}/legal-documents/public/active/${type}`, {
+      method: "GET",
+      headers: getPublicHeaders(),
+    });
+    if (!response.ok) {
+      throw new Error("Erro ao buscar documento ativo");
+    }
+    return await response.json();
+  },
+
+  async acceptDuringLogin(email: string, password: string, legalDocumentIds: number[]) {
+    const response = await fetch(`${getApiUrlValue()}/legal-documents/public/accept-during-login`, {
+      method: "POST",
+      headers: getPublicHeaders(),
+      body: JSON.stringify({ email, password, legal_document_ids: legalDocumentIds }),
+    });
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.message || "Erro ao aceitar documentos");
+    }
+    return await response.json();
+  },
+};
+
+// Agency legal document endpoints
+export const agencyLegalDocumentService = {
+  async getPending() {
+    const response = await fetch(`${getApiUrlValue()}/legal-documents/agency/pending`, {
+      method: "GET",
+      headers: getAgencyAuthHeaders(),
+    });
+    if (!response.ok) {
+      throw new Error("Erro ao buscar documentos pendentes");
+    }
+    return await response.json();
+  },
+
+  async getAccepted() {
+    const response = await fetch(`${getApiUrlValue()}/legal-documents/agency/accepted`, {
+      method: "GET",
+      headers: getAgencyAuthHeaders(),
+    });
+    if (!response.ok) {
+      throw new Error("Erro ao buscar documentos aceitos");
+    }
+    return await response.json();
+  },
+
+  async accept(legalDocumentId: number) {
+    const response = await fetch(`${getApiUrlValue()}/legal-documents/agency/accept`, {
+      method: "POST",
+      headers: getAgencyAuthHeaders(),
+      body: JSON.stringify({ legal_document_id: legalDocumentId }),
+    });
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.message || "Erro ao aceitar documento");
+    }
+    return await response.json();
+  },
+};
+
+export const executiveNotificationEmailService = {
+  async getByExecutiveId(executiveId: number) {
+    const response = await fetch(`${getApiUrlValue()}/admin/executive-notification-emails/executive/${executiveId}`, {
+      headers: getAuthHeaders(),
+    });
+    if (!response.ok) throw new Error("Erro ao buscar emails de notificação");
+    const data = await response.json();
+    return data.data || [];
+  },
+
+  async getById(id: number) {
+    const response = await fetch(`${getApiUrlValue()}/admin/executive-notification-emails/${id}`, {
+      headers: getAuthHeaders(),
+    });
+    if (!response.ok) throw new Error("Erro ao buscar email de notificação");
+    return await response.json();
+  },
+
+  async create(data: { executiveId: number; email: string }) {
+    const response = await fetch(`${getApiUrlValue()}/admin/executive-notification-emails`, {
+      method: "POST",
+      headers: getAuthHeaders(),
+      body: JSON.stringify(data),
+    });
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.message || "Erro ao criar email de notificação");
+    }
+    return await response.json();
+  },
+
+  async update(id: number, data: { email?: string; active?: boolean }) {
+    const response = await fetch(`${getApiUrlValue()}/admin/executive-notification-emails/${id}`, {
+      method: "PUT",
+      headers: getAuthHeaders(),
+      body: JSON.stringify(data),
+    });
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.message || "Erro ao atualizar email de notificação");
+    }
+    return await response.json();
+  },
+
+  async delete(id: number) {
+    const response = await fetch(`${getApiUrlValue()}/admin/executive-notification-emails/${id}`, {
+      method: "DELETE",
+      headers: getAuthHeaders(),
+    });
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.message || "Erro ao deletar email de notificação");
+    }
+    return await response.json();
   },
 };

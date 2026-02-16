@@ -19,11 +19,13 @@ exports.heroProductService = {
             }
         }
         else if (data.bannerType === 'EXTERNAL') {
-            if (!data.externalUrl) {
-                throw new Error('externalUrl é obrigatório para banners do tipo EXTERNAL');
-            }
             if (data.productId) {
                 throw new Error('productId não pode ser definido para banners do tipo EXTERNAL');
+            }
+            // Validar linkType e externalUrl
+            const linkType = data.linkType || 'NONE';
+            if (linkType === 'EXTERNAL_URL' && !data.externalUrl) {
+                throw new Error('externalUrl é obrigatório quando linkType é EXTERNAL_URL');
             }
         }
         // Validar imagem desktop obrigatória apenas para EXTERNAL
@@ -43,13 +45,14 @@ exports.heroProductService = {
         let values;
         if (data.bannerType === 'PRODUCT') {
             // Para PRODUCT, product_id é obrigatório
-            sql = 'INSERT INTO hero_products (banner_type, product_id, external_url, image_desktop, image_mobile, display_order, display_duration, active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, NOW(), NOW())';
-            values = [data.bannerType, data.productId, null, data.imageDesktop || null, data.imageMobile || null, displayOrder, displayDuration, active];
+            sql = 'INSERT INTO hero_products (banner_type, product_id, external_url, link_type, image_desktop, image_mobile, display_order, display_duration, active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())';
+            values = [data.bannerType, data.productId, null, null, data.imageDesktop || null, data.imageMobile || null, displayOrder, displayDuration, active];
         }
         else {
-            // Para EXTERNAL, product_id deve ser NULL (ou não incluído)
-            sql = 'INSERT INTO hero_products (banner_type, product_id, external_url, image_desktop, image_mobile, display_order, display_duration, active, created_at, updated_at) VALUES (?, NULL, ?, ?, ?, ?, ?, ?, NOW(), NOW())';
-            values = [data.bannerType, data.externalUrl, data.imageDesktop, data.imageMobile || null, displayOrder, displayDuration, active];
+            // Para EXTERNAL, product_id deve ser NULL
+            const linkType = data.linkType || 'NONE';
+            sql = 'INSERT INTO hero_products (banner_type, product_id, external_url, link_type, image_desktop, image_mobile, display_order, display_duration, active, created_at, updated_at) VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())';
+            values = [data.bannerType, data.externalUrl || null, linkType, data.imageDesktop, data.imageMobile || null, displayOrder, displayDuration, active];
         }
         const result = await (0, db_1.query)(sql, values);
         return result.insertId;
@@ -79,12 +82,14 @@ exports.heroProductService = {
             }
         }
         else if (bannerType === 'EXTERNAL') {
-            const externalUrl = data.externalUrl !== undefined ? data.externalUrl : current.externalUrl;
-            if (!externalUrl) {
-                throw new Error('externalUrl é obrigatório para banners do tipo EXTERNAL');
-            }
             if (data.productId !== undefined && data.productId !== null) {
                 throw new Error('productId não pode ser definido para banners do tipo EXTERNAL');
+            }
+            // Validar linkType e externalUrl
+            const linkType = data.linkType !== undefined ? data.linkType : (current.linkType || 'NONE');
+            const externalUrl = data.externalUrl !== undefined ? data.externalUrl : current.externalUrl;
+            if (linkType === 'EXTERNAL_URL' && !externalUrl) {
+                throw new Error('externalUrl é obrigatório quando linkType é EXTERNAL_URL');
             }
         }
         const updates = [];
@@ -96,9 +101,10 @@ exports.heroProductService = {
             if (data.bannerType === 'EXTERNAL') {
                 updates.push('product_id = NULL');
             }
-            // Quando mudar para PRODUCT, garantir que external_url seja NULL
+            // Quando mudar para PRODUCT, garantir que external_url e link_type sejam NULL
             if (data.bannerType === 'PRODUCT') {
                 updates.push('external_url = NULL');
+                updates.push('link_type = NULL');
             }
         }
         else {
@@ -110,6 +116,10 @@ exports.heroProductService = {
             if (bannerType === 'PRODUCT' && data.externalUrl === undefined) {
                 // Se for PRODUCT e não está atualizando externalUrl, garantir que seja NULL
                 updates.push('external_url = NULL');
+            }
+            if (bannerType === 'PRODUCT' && data.linkType === undefined) {
+                // Se for PRODUCT e não está atualizando linkType, garantir que seja NULL
+                updates.push('link_type = NULL');
             }
         }
         if (data.productId !== undefined) {
@@ -130,6 +140,16 @@ exports.heroProductService = {
             else {
                 updates.push('external_url = ?');
                 values.push(data.externalUrl);
+            }
+        }
+        if (data.linkType !== undefined) {
+            if (bannerType === 'PRODUCT') {
+                // Para PRODUCT, link_type deve ser NULL
+                updates.push('link_type = NULL');
+            }
+            else {
+                updates.push('link_type = ?');
+                values.push(data.linkType);
             }
         }
         if (data.imageDesktop !== undefined) {
@@ -164,14 +184,14 @@ exports.heroProductService = {
         await (0, db_1.query)('DELETE FROM hero_products WHERE id = ?', [id]);
     },
     async findById(id) {
-        const results = await (0, db_1.query)('SELECT id, banner_type as bannerType, product_id as productId, external_url as externalUrl, image_desktop as imageDesktop, image_mobile as imageMobile, display_order as displayOrder, display_duration as displayDuration, active, created_at as createdAt, updated_at as updatedAt FROM hero_products WHERE id = ?', [id]);
+        const results = await (0, db_1.query)('SELECT id, banner_type as bannerType, product_id as productId, external_url as externalUrl, link_type as linkType, image_desktop as imageDesktop, image_mobile as imageMobile, display_order as displayOrder, display_duration as displayDuration, active, created_at as createdAt, updated_at as updatedAt FROM hero_products WHERE id = ?', [id]);
         if (Array.isArray(results) && results.length > 0) {
             return results[0];
         }
         return null;
     },
     async findAll() {
-        const results = await (0, db_1.query)('SELECT id, banner_type as bannerType, product_id as productId, external_url as externalUrl, image_desktop as imageDesktop, image_mobile as imageMobile, display_order as displayOrder, display_duration as displayDuration, active, created_at as createdAt, updated_at as updatedAt FROM hero_products ORDER BY display_order ASC, created_at ASC');
+        const results = await (0, db_1.query)('SELECT id, banner_type as bannerType, product_id as productId, external_url as externalUrl, link_type as linkType, image_desktop as imageDesktop, image_mobile as imageMobile, display_order as displayOrder, display_duration as displayDuration, active, created_at as createdAt, updated_at as updatedAt FROM hero_products ORDER BY display_order ASC, created_at ASC');
         return Array.isArray(results) ? results : [];
     },
     async updateOrder(updates) {
@@ -202,6 +222,7 @@ exports.heroProductService = {
                 hp.banner_type as bannerType,
                 hp.product_id as productId,
                 hp.external_url as externalUrl,
+                hp.link_type as linkType,
                 hp.image_desktop as imageDesktop,
                 hp.image_mobile as imageMobile,
                 hp.display_order as displayOrder,
@@ -216,11 +237,25 @@ exports.heroProductService = {
         const productBanners = heroProducts.filter((hp) => hp.bannerType === 'PRODUCT' && hp.productId);
         const externalBanners = heroProducts.filter((hp) => hp.bannerType === 'EXTERNAL');
         const result = [];
-        // Processar banners EXTERNAL (mais simples)
+        // Processar banners EXTERNAL
         for (const banner of externalBanners) {
             if (!banner.imageDesktop) {
                 continue; // Pular banners sem imagem desktop
             }
+            const linkType = banner.linkType || 'NONE';
+            let link = null;
+            if (linkType === 'EXTERNAL_URL' && banner.externalUrl) {
+                link = {
+                    type: 'EXTERNAL',
+                    url: banner.externalUrl
+                };
+            }
+            else if (linkType === 'PRODUCTS_PAGE') {
+                link = {
+                    type: 'PRODUCTS_PAGE'
+                };
+            }
+            // Se linkType for 'NONE', link permanece null
             result.push({
                 id: banner.heroId,
                 nome: 'Banner',
@@ -229,10 +264,7 @@ exports.heroProductService = {
                 imagem_mobile: banner.imageMobile || banner.imageDesktop, // Usar desktop como fallback
                 preco: 0,
                 displayDuration: banner.displayDuration || 5,
-                link: {
-                    type: 'EXTERNAL',
-                    url: banner.externalUrl || ''
-                }
+                link: link
             });
         }
         // Processar banners PRODUCT (com lógica de lotes)
@@ -340,10 +372,16 @@ exports.heroProductService = {
                     for (let i = 0; i < sortedPrices.length; i++) {
                         const lote = sortedPrices[i];
                         const quantidadeCompra = Number(lote.quantidadeCompra) || 0;
+                        // Se quantidade_compra for 0, permite apenas 1 unidade por agência (qualquer lote)
                         if (quantidadeCompra === 0) {
-                            loteDisponivel = lote;
-                            podeComprar = true;
-                            break;
+                            // Se a agência ainda não comprou nenhuma unidade, pode comprar
+                            if (agencyPurchaseCount === 0) {
+                                loteDisponivel = lote;
+                                podeComprar = true;
+                                break;
+                            }
+                            // Se já comprou, não pode mais comprar neste lote com quantidadeCompra = 0
+                            continue;
                         }
                         if (agencyPurchaseCount >= quantidadeCompra) {
                             continue;
@@ -384,11 +422,34 @@ exports.heroProductService = {
             }
         }
         // Ordenar resultado final por display_order
+        // Para banners EXTERNAL, usar heroId para identificar (já que podem não ter URL)
         return result.sort((a, b) => {
-            const aOrder = heroProducts.find((hp) => (hp.bannerType === 'PRODUCT' && a.link?.product_id === hp.productId) ||
-                (hp.bannerType === 'EXTERNAL' && a.link?.url === hp.externalUrl))?.displayOrder || 0;
-            const bOrder = heroProducts.find((hp) => (hp.bannerType === 'PRODUCT' && b.link?.product_id === hp.productId) ||
-                (hp.bannerType === 'EXTERNAL' && b.link?.url === hp.externalUrl))?.displayOrder || 0;
+            const aOrder = heroProducts.find((hp) => {
+                if (hp.bannerType === 'PRODUCT' && a.link?.product_id === hp.productId) {
+                    return true;
+                }
+                if (hp.bannerType === 'EXTERNAL') {
+                    // Para banners externos, verificar por heroId ou URL
+                    if (a.id === hp.heroId)
+                        return true;
+                    if (a.link?.url && a.link.url === hp.externalUrl)
+                        return true;
+                }
+                return false;
+            })?.displayOrder || 0;
+            const bOrder = heroProducts.find((hp) => {
+                if (hp.bannerType === 'PRODUCT' && b.link?.product_id === hp.productId) {
+                    return true;
+                }
+                if (hp.bannerType === 'EXTERNAL') {
+                    // Para banners externos, verificar por heroId ou URL
+                    if (b.id === hp.heroId)
+                        return true;
+                    if (b.link?.url && b.link.url === hp.externalUrl)
+                        return true;
+                }
+                return false;
+            })?.displayOrder || 0;
             return aOrder - bOrder;
         });
     }

@@ -1,8 +1,24 @@
 import { useParams, useNavigate } from "react-router-dom";
 import { useState, useEffect, useRef } from "react";
-import { ArrowLeft, Plus, XCircle } from "lucide-react";
+import { ArrowLeft, Plus, XCircle, Ruler } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import {
   Carousel,
   CarouselContent,
@@ -70,6 +86,13 @@ interface Product {
   agencyPurchaseCount?: number;
   podeComprar?: boolean;
   loteDisponivel?: { id: number; value: number; batch: number } | null;
+  variants?: Array<{
+    id: number;
+    model: 'MASCULINO' | 'FEMININO' | 'UNISEX';
+    size: string;
+    stock: number;
+    active: boolean;
+  }>;
 }
 
 const Product = () => {
@@ -84,6 +107,10 @@ const Product = () => {
   const [relatedProducts, setRelatedProducts] = useState<Product[]>([]);
   const [purchaseInfo, setPurchaseInfo] = useState<{ totalUnits: number; purchasesByLot: Array<{ priceId: number; batch: number; units: number }> } | null>(null);
   const [productPrices, setProductPrices] = useState<Array<{ id: number; value: number; batch: number; quantidadeCompra: number }>>([]);
+  const [selectedModel, setSelectedModel] = useState<'MASCULINO' | 'FEMININO' | 'UNISEX' | ''>('');
+  const [selectedSize, setSelectedSize] = useState<string>('');
+  const [selectedVariantId, setSelectedVariantId] = useState<number | null>(null);
+  const [isSizeChartOpen, setIsSizeChartOpen] = useState(false);
   const loadingRef = useRef(false);
   const lastRequestRef = useRef<{ id: number; agencyId?: number } | null>(null);
 
@@ -179,41 +206,109 @@ const Product = () => {
   const handleAddToCart = () => {
     if (!product) return;
 
+    // Se tem variações, validar seleção
+    if (product.variants && product.variants.length > 0) {
+      if (!selectedModel || !selectedSize || !selectedVariantId) {
+        toast.error("Selecione o modelo e tamanho antes de adicionar ao carrinho");
+        return;
+      }
+
+      const selectedVariant = product.variants.find(v => v.id === selectedVariantId);
+      if (!selectedVariant || selectedVariant.stock === 0) {
+        toast.error("Esta variação está fora de estoque");
+        return;
+      }
+    }
+
+    const baseItem = {
+      id: product.id,
+      name: product.nome,
+      image: product.imagens[0]?.startsWith('http') 
+        ? product.imagens[0] 
+        : (imageMap[product.imagens[0]] || product.imagens[0]),
+      price: product.loteDisponivel 
+        ? Number(product.loteDisponivel.value) 
+        : Number(product.valorPrimeiroLote || 0),
+      originalPrice: Number(product.valor || 0),
+      variantId: selectedVariantId || undefined,
+      variantInfo: selectedModel && selectedSize ? {
+        model: selectedModel as 'MASCULINO' | 'FEMININO' | 'UNISEX',
+        size: selectedSize
+      } : undefined,
+    };
+
     // Se tem preços (lotes), passar informações completas
     if (productPrices.length > 0) {
       addItem({
-        id: product.id,
-        name: product.nome,
-        image: product.imagens[0]?.startsWith('http') 
-          ? product.imagens[0] 
-          : (imageMap[product.imagens[0]] || product.imagens[0]),
-        price: product.loteDisponivel 
-          ? Number(product.loteDisponivel.value) 
-          : Number(product.valorPrimeiroLote || 0),
-        originalPrice: Number(product.valor || 0),
+        ...baseItem,
         prices: productPrices,
         agencyPurchaseCount: purchaseInfo?.totalUnits || 0,
-        purchasesByLot: purchaseInfo?.purchasesByLot || []
+        purchasesByLot: purchaseInfo?.purchasesByLot || [],
+        loteDisponivelId: product.loteDisponivel?.id
       });
     } else {
-      // Se não tem lotes, usar preço simples
-      const priceToUse = product.loteDisponivel 
-        ? Number(product.loteDisponivel.value) 
-        : Number(product.valorPrimeiroLote || 0);
-
-      addItem({
-        id: product.id,
-        name: product.nome,
-        image: product.imagens[0]?.startsWith('http') 
-          ? product.imagens[0] 
-          : (imageMap[product.imagens[0]] || product.imagens[0]),
-        price: priceToUse,
-        originalPrice: Number(product.valor || 0),
-      });
+      addItem(baseItem);
     }
     
-    toast.success(`${product.nome} adicionado ao carrinho!`);
+    const variantText = selectedModel && selectedSize 
+      ? ` (${getModelName(selectedModel)} - ${selectedSize})` 
+      : '';
+    toast.success(`${product.nome}${variantText} adicionado ao carrinho!`);
   };
+
+  // Obter modelos disponíveis únicos
+  const availableModels = product?.variants
+    ? Array.from(new Set(product.variants.map(v => v.model).filter(Boolean)))
+    : [];
+
+  // Função para obter o nome amigável do modelo
+  const getModelName = (model: string) => {
+    switch (model) {
+      case 'MASCULINO':
+        return 'Masculino';
+      case 'FEMININO':
+        return 'Feminino';
+      case 'UNISEX':
+        return 'Unisex';
+      default:
+        return model;
+    }
+  };
+
+  // Filtrar tamanhos disponíveis baseado no modelo selecionado
+  const availableSizes = selectedModel && product?.variants
+    ? product.variants
+        .filter(v => v.model === selectedModel && v.active)
+        .map(v => ({ size: v.size, stock: v.stock, id: v.id }))
+        .sort((a, b) => {
+          // Ordenar tamanhos: P, M, G, GG, etc.
+          const sizeOrder = ['PP', 'P', 'M', 'G', 'GG', 'XG', 'XXG'];
+          const aIndex = sizeOrder.indexOf(a.size.toUpperCase());
+          const bIndex = sizeOrder.indexOf(b.size.toUpperCase());
+          if (aIndex !== -1 && bIndex !== -1) return aIndex - bIndex;
+          if (aIndex !== -1) return -1;
+          if (bIndex !== -1) return 1;
+          return a.size.localeCompare(b.size);
+        })
+    : [];
+
+  // Resetar tamanho quando modelo mudar
+  useEffect(() => {
+    if (selectedModel) {
+      setSelectedSize('');
+      setSelectedVariantId(null);
+    }
+  }, [selectedModel]);
+
+  // Atualizar variantId quando tamanho mudar
+  useEffect(() => {
+    if (selectedModel && selectedSize && product?.variants) {
+      const variant = product.variants.find(
+        v => v.model === selectedModel && v.size === selectedSize && v.active
+      );
+      setSelectedVariantId(variant?.id || null);
+    }
+  }, [selectedModel, selectedSize, product]);
 
   if (loading) {
     return (
@@ -328,31 +423,46 @@ const Product = () => {
 
               {/* Prices */}
               <div className="space-y-2">
-                <div className="flex items-baseline gap-3">
-                  <span className="text-4xl md:text-5xl font-bold text-primary">
-                    {formatPoints(product.loteDisponivel 
-                      ? Number(product.loteDisponivel.value || 0)
-                      : Number(product.valorPrimeiroLote || 0))} pts
-                  </span>
-                  <span className="text-sm text-muted-foreground">
-                    {product.loteDisponivel 
-                      ? `(${product.loteDisponivel.batch}º Lote)`
-                      : "(1º Lote)"}
-                  </span>
-                </div>
                 {(() => {
-                  const precoAtual = product.loteDisponivel 
-                    ? Number(product.loteDisponivel.value || 0)
+                  // Se limite atingido, usar último lote cadastrado
+                  const ultimoLote = productPrices.length > 0 
+                    ? productPrices[productPrices.length - 1] 
+                    : null;
+                  const loteParaExibicao = product.loteDisponivel 
+                    ? product.loteDisponivel
+                    : (product.podeComprar === false && ultimoLote
+                      ? { id: ultimoLote.id, value: ultimoLote.value, batch: ultimoLote.batch }
+                      : null);
+                  
+                  const valorExibido = loteParaExibicao
+                    ? Number(loteParaExibicao.value || 0)
                     : Number(product.valorPrimeiroLote || 0);
-                  return product.valor > precoAtual && (
-                    <div className="flex items-center gap-2">
-                      <span className="text-2xl text-muted-foreground line-through">
-                        {formatPoints(Number(product.valor || 0))} pts
-                      </span>
-                      <span className="text-sm text-muted-foreground">
-                        (Preço Original)
-                      </span>
-                    </div>
+                  
+                  const numeroLote = loteParaExibicao
+                    ? loteParaExibicao.batch
+                    : (ultimoLote ? ultimoLote.batch : 1);
+                  
+                  return (
+                    <>
+                      <div className="flex items-baseline gap-3">
+                        <span className="text-4xl md:text-5xl font-bold text-primary">
+                          {formatPoints(valorExibido)} pts
+                        </span>
+                        <span className="text-sm text-muted-foreground">
+                          ({numeroLote}º Lote)
+                        </span>
+                      </div>
+                      {product.valor > valorExibido && (
+                        <div className="flex items-center gap-2">
+                          <span className="text-2xl text-muted-foreground line-through">
+                            {formatPoints(Number(product.valor || 0))} pts
+                          </span>
+                          <span className="text-sm text-muted-foreground">
+                            (Preço Original)
+                          </span>
+                        </div>
+                      )}
+                    </>
                   );
                 })()}
               </div>
@@ -404,6 +514,109 @@ const Product = () => {
                 </div>
               )}
 
+              {/* Model and Size Selection */}
+              {product.variants && product.variants.length > 0 && (
+                <div className="space-y-4 p-4 border rounded-lg">
+                  <h3 className="text-lg font-semibold text-foreground">
+                    Selecione Modelo e Tamanho
+                  </h3>
+                  
+                  {/* Model Selection */}
+                  <div className="space-y-2">
+                    <Label htmlFor="product-model">Modelo *</Label>
+                    <div className="flex flex-wrap gap-2">
+                      {availableModels.map((model) => {
+                        const hasStock = product.variants?.some(
+                          v => v.model === model && v.active && v.stock > 0
+                        );
+                        return (
+                          <button
+                            key={model}
+                            type="button"
+                            onClick={() => {
+                              if (hasStock) {
+                                setSelectedModel(model as 'MASCULINO' | 'FEMININO' | 'UNISEX');
+                                // Resetar tamanho quando mudar modelo
+                                setSelectedSize('');
+                                setSelectedVariantId(null);
+                              }
+                            }}
+                            disabled={!hasStock}
+                            className={`
+                              px-6 py-3 rounded-lg border-2 transition-all font-medium
+                              ${selectedModel === model
+                                ? 'border-primary bg-primary text-primary-foreground'
+                                : !hasStock
+                                ? 'border-muted bg-muted text-muted-foreground cursor-not-allowed opacity-50'
+                                : 'border-border hover:border-primary cursor-pointer bg-background'
+                              }
+                            `}
+                          >
+                            {getModelName(model)}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Size Selection */}
+                  {selectedModel && availableSizes.length > 0 && (
+                    <div className="space-y-2">
+                      <Label htmlFor="product-size">Tamanho *</Label>
+                      <div className="grid grid-cols-4 gap-2">
+                        {availableSizes.map(({ size, stock, id }) => {
+                          const isOutOfStock = stock === 0;
+                          return (
+                            <button
+                              key={id}
+                              type="button"
+                              onClick={() => {
+                                if (!isOutOfStock) {
+                                  setSelectedSize(size);
+                                  setSelectedVariantId(id);
+                                }
+                              }}
+                              disabled={isOutOfStock}
+                              className={`
+                                px-4 py-2 rounded-lg border-2 transition-all
+                                ${selectedSize === size
+                                  ? 'border-primary bg-primary text-primary-foreground'
+                                  : isOutOfStock
+                                  ? 'border-muted bg-muted text-muted-foreground cursor-not-allowed opacity-50'
+                                  : 'border-border hover:border-primary cursor-pointer'
+                                }
+                              `}
+                            >
+                              <div className="text-center">
+                                <div className={`font-medium ${isOutOfStock ? 'line-through' : ''}`}>
+                                  {size}
+                                </div>
+                                {isOutOfStock && (
+                                  <div className="text-xs mt-1">Esgotado</div>
+                                )}
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* Size Chart Button */}
+                  <div className="pt-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => setIsSizeChartOpen(true)}
+                      className="w-full"
+                    >
+                      <Ruler className="w-4 h-4 mr-2" />
+                      Tabela de Tamanhos
+                    </Button>
+                  </div>
+                </div>
+              )}
+
               {/* Add to Cart Button */}
               <Button
                 onClick={handleAddToCart}
@@ -411,7 +624,8 @@ const Product = () => {
                 size="lg"
                 disabled={
                   (product.quantity !== undefined && product.quantity === 0) ||
-                  (product.podeComprar !== undefined && !product.podeComprar)
+                  (product.podeComprar !== undefined && !product.podeComprar) ||
+                  (product.variants && product.variants.length > 0 && (!selectedModel || !selectedSize || !selectedVariantId))
                 }
               >
                 {product.quantity !== undefined && product.quantity === 0 ? (
@@ -513,7 +727,68 @@ const Product = () => {
             </div>
           )}
         </div>
-      </div>
+
+        {/* Size Chart Modal */}
+        <Dialog open={isSizeChartOpen} onOpenChange={setIsSizeChartOpen}>
+          <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>Tabela de Tamanhos</DialogTitle>
+              <DialogDescription>
+                Consulte as medidas para escolher o tamanho ideal
+              </DialogDescription>
+            </DialogHeader>
+            
+            <div className="space-y-4">
+              {/* Tabela de medidas */}
+              <div className="border rounded-lg overflow-hidden">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Tamanho</TableHead>
+                      <TableHead>Peito (cm)</TableHead>
+                      <TableHead>Cintura (cm)</TableHead>
+                      <TableHead>Comprimento (cm)</TableHead>
+                      <TableHead>Ombro (cm)</TableHead>
+                      <TableHead>Manga (cm)</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {/* Exemplo de dados - será substituído por dados reais da API */}
+                    {[
+                      { size: 'P', chest: 48, waist: 44, length: 68, shoulder: 42, sleeve: 20 },
+                      { size: 'M', chest: 52, waist: 48, length: 70, shoulder: 44, sleeve: 21 },
+                      { size: 'G', chest: 56, waist: 52, length: 72, shoulder: 46, sleeve: 22 },
+                      { size: 'GG', chest: 60, waist: 56, length: 74, shoulder: 48, sleeve: 23 },
+                      { size: 'XG', chest: 64, waist: 60, length: 76, shoulder: 50, sleeve: 24 },
+                    ].map((row) => (
+                      <TableRow key={row.size}>
+                        <TableCell className="font-medium">{row.size}</TableCell>
+                        <TableCell>{row.chest}</TableCell>
+                        <TableCell>{row.waist}</TableCell>
+                        <TableCell>{row.length}</TableCell>
+                        <TableCell>{row.shoulder}</TableCell>
+                        <TableCell>{row.sleeve}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+
+              {/* Instruções de como medir */}
+              <div className="bg-muted p-4 rounded-lg">
+                <h4 className="font-semibold mb-2">Como medir:</h4>
+                <ul className="text-sm space-y-1 text-muted-foreground list-disc list-inside">
+                  <li><strong>Peito:</strong> Meça ao redor da parte mais larga do peito, mantendo a fita métrica horizontal</li>
+                  <li><strong>Cintura:</strong> Meça ao redor da cintura natural, onde você normalmente usa o cinto</li>
+                  <li><strong>Comprimento:</strong> Meça do ombro até a parte inferior da camiseta</li>
+                  <li><strong>Ombro:</strong> Meça de um ombro ao outro, na parte de trás</li>
+                  <li><strong>Manga:</strong> Meça do ombro até o punho</li>
+                </ul>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+    </div>
   );
 };
 

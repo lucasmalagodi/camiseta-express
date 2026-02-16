@@ -8,9 +8,24 @@ interface Agency {
   token?: string;
 }
 
+interface PendingDocument {
+  id: number;
+  type: string;
+  version: number;
+}
+
+interface LoginResult {
+  success: boolean;
+  requires2FA?: boolean;
+  requiresAcceptance?: boolean;
+  pendingDocuments?: PendingDocument[];
+  message?: string;
+}
+
 interface AuthContextType {
   agency: Agency | null;
-  login: (email: string, password: string) => Promise<boolean>;
+  login: (email: string, password: string) => Promise<LoginResult>;
+  verifyCode: (email: string, code: string) => Promise<boolean>;
   logout: () => void;
   isAuthenticated: boolean;
   updatePoints: (points: number) => void;
@@ -70,25 +85,123 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
   }, [agency]);
 
-  const login = async (email: string, password: string): Promise<boolean> => {
+  const login = async (email: string, password: string): Promise<LoginResult> => {
     try {
       const API_URL = getApiUrl();
+      console.log("Tentando fazer login em:", `${API_URL}/agencies/login`);
 
       const response = await fetch(`${API_URL}/agencies/login`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
+        credentials: 'include', // Importante para receber cookies
         body: JSON.stringify({ email, password }),
       });
 
-      const data = await response.json();
+      console.log("Resposta recebida:", response.status, response.statusText);
+
+      if (!response.ok && response.status >= 500) {
+        throw new Error(`Erro do servidor: ${response.status}`);
+      }
+
+      let data;
+      try {
+        data = await response.json();
+        console.log("Dados recebidos:", data);
+      } catch (jsonError) {
+        console.error("Erro ao parsear JSON:", jsonError);
+        const text = await response.text();
+        console.error("Resposta do servidor (texto):", text);
+        return { success: false, message: "Resposta inválida do servidor" };
+      }
 
       if (!response.ok) {
+        // Verificar se requer aceitação de documentos
+        if (response.status === 403 && data.requiresAcceptance) {
+          return {
+            success: false,
+            requiresAcceptance: true,
+            pendingDocuments: data.pendingDocuments || [],
+            message: data.message || "Você precisa aceitar os novos termos e políticas para continuar"
+          };
+        }
         console.error("Erro no login:", data.message || "Erro desconhecido");
+        return { success: false, message: data.message || "Erro ao fazer login" };
+      }
+
+      // Verificar se requer verificação de código
+      if (data.requires2FA) {
+        return { 
+          success: false, 
+          requires2FA: true, 
+          message: data.message || "Código de verificação enviado por email" 
+        };
+      }
+
+      // Login bem-sucedido
+      const agencyData: Agency = {
+        id: data.id,
+        name: data.name,
+        email: data.email,
+        points: data.balance || 0,
+        token: data.token,
+      };
+      
+      setAgency(agencyData);
+      localStorage.setItem("agency", JSON.stringify(agencyData));
+      if (data.token) {
+        localStorage.setItem("agencyToken", data.token);
+      }
+      return { success: true };
+    } catch (error: any) {
+      console.error("Erro ao fazer login:", error);
+      const errorMessage = error?.message || "Erro ao conectar com o servidor";
+      console.error("Detalhes do erro:", {
+        message: errorMessage,
+        stack: error?.stack,
+        name: error?.name
+      });
+      return { 
+        success: false, 
+        message: errorMessage.includes("Failed to fetch") || errorMessage.includes("NetworkError")
+          ? "Não foi possível conectar ao servidor. Verifique sua conexão."
+          : errorMessage
+      };
+    }
+  };
+
+  const verifyCode = async (email: string, code: string): Promise<boolean> => {
+    try {
+      const API_URL = getApiUrl();
+
+      const response = await fetch(`${API_URL}/agencies/verify-code`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        credentials: 'include', // Importante para receber cookies
+        body: JSON.stringify({ email, code }),
+      });
+
+      if (!response.ok && response.status >= 500) {
+        throw new Error(`Erro do servidor: ${response.status}`);
+      }
+
+      let data;
+      try {
+        data = await response.json();
+      } catch (jsonError) {
+        console.error("Erro ao parsear JSON:", jsonError);
         return false;
       }
 
+      if (!response.ok) {
+        console.error("Erro na verificação:", data.message || "Erro desconhecido");
+        return false;
+      }
+
+      // Código válido - fazer login
       const agencyData: Agency = {
         id: data.id,
         name: data.name,
@@ -103,8 +216,13 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         localStorage.setItem("agencyToken", data.token);
       }
       return true;
-    } catch (error) {
-      console.error("Erro ao fazer login:", error);
+    } catch (error: any) {
+      console.error("Erro ao verificar código:", error);
+      const errorMessage = error?.message || "Erro ao verificar código";
+      console.error("Detalhes do erro:", {
+        message: errorMessage,
+        stack: error?.stack
+      });
       return false;
     }
   };
@@ -314,6 +432,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       value={{
         agency,
         login,
+        verifyCode,
         logout,
         isAuthenticated: !!agency,
         updatePoints,

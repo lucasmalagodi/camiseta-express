@@ -16,6 +16,7 @@ import { ArrowLeft, FileSpreadsheet, Search, X } from "lucide-react";
 import { agencyPointsImportService } from "@/services/api";
 import { toast } from "sonner";
 import { formatPoints } from "@/lib/utils";
+import { useTableSort } from "@/hooks/useTableSort";
 
 interface ImportItem {
   id: number;
@@ -101,6 +102,8 @@ const AdminImportDetails = () => {
       );
     });
   }, [importData?.items, searchTerm]);
+
+  const { sortedData, handleSort, getSortIcon } = useTableSort(filteredItems);
 
   const totalPoints = importData?.items.reduce((sum, item) => sum + Number(item.points), 0) || 0;
   const filteredTotalPoints = filteredItems.reduce((sum, item) => sum + Number(item.points), 0);
@@ -215,21 +218,76 @@ const AdminImportDetails = () => {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Data Venda</TableHead>
-                    <TableHead>ID Venda</TableHead>
-                    <TableHead>CNPJ</TableHead>
-                    <TableHead>Agência</TableHead>
-                    <TableHead>Filial</TableHead>
-                    <TableHead>Posto</TableHead>
-                    <TableHead>Promotor</TableHead>
-                    <TableHead>Fornecedor</TableHead>
-                    <TableHead>Produto</TableHead>
-                    <TableHead>Empresa</TableHead>
-                    <TableHead className="text-right">Pontos</TableHead>
+                    <TableHead 
+                      className="cursor-pointer hover:bg-muted/50 select-none"
+                      onClick={() => handleSort("saleDate")}
+                    >
+                      Data Venda{getSortIcon("saleDate")}
+                    </TableHead>
+                    <TableHead 
+                      className="cursor-pointer hover:bg-muted/50 select-none"
+                      onClick={() => handleSort("saleId")}
+                    >
+                      ID Venda{getSortIcon("saleId")}
+                    </TableHead>
+                    <TableHead 
+                      className="cursor-pointer hover:bg-muted/50 select-none"
+                      onClick={() => handleSort("cnpj")}
+                    >
+                      CNPJ{getSortIcon("cnpj")}
+                    </TableHead>
+                    <TableHead 
+                      className="cursor-pointer hover:bg-muted/50 select-none"
+                      onClick={() => handleSort("agencyName")}
+                    >
+                      Agência{getSortIcon("agencyName")}
+                    </TableHead>
+                    <TableHead 
+                      className="cursor-pointer hover:bg-muted/50 select-none"
+                      onClick={() => handleSort("branch")}
+                    >
+                      Filial{getSortIcon("branch")}
+                    </TableHead>
+                    <TableHead 
+                      className="cursor-pointer hover:bg-muted/50 select-none"
+                      onClick={() => handleSort("store")}
+                    >
+                      Posto{getSortIcon("store")}
+                    </TableHead>
+                    <TableHead 
+                      className="cursor-pointer hover:bg-muted/50 select-none"
+                      onClick={() => handleSort("executiveName")}
+                    >
+                      Promotor{getSortIcon("executiveName")}
+                    </TableHead>
+                    <TableHead 
+                      className="cursor-pointer hover:bg-muted/50 select-none"
+                      onClick={() => handleSort("supplier")}
+                    >
+                      Fornecedor{getSortIcon("supplier")}
+                    </TableHead>
+                    <TableHead 
+                      className="cursor-pointer hover:bg-muted/50 select-none"
+                      onClick={() => handleSort("productName")}
+                    >
+                      Produto{getSortIcon("productName")}
+                    </TableHead>
+                    <TableHead 
+                      className="cursor-pointer hover:bg-muted/50 select-none"
+                      onClick={() => handleSort("company")}
+                    >
+                      Empresa{getSortIcon("company")}
+                    </TableHead>
+                    <TableHead 
+                      className="text-right cursor-pointer hover:bg-muted/50 select-none"
+                      onClick={() => handleSort("points")}
+                    >
+                      Pontos{getSortIcon("points")}
+                    </TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredItems.map((item) => (
+                  {sortedData.map((item) => (
                     <TableRow key={item.id}>
                       <TableCell className="text-sm">
                         {item.saleDate ? formatDate(item.saleDate) : "-"}

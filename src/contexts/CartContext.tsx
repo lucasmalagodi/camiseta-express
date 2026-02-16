@@ -5,7 +5,8 @@ export const calculateLotDistribution = (
   quantity: number,
   prices: Array<{ id: number; value: number; batch: number; quantidadeCompra: number }>,
   agencyPurchaseCount: number = 0,
-  purchasesByLot: Array<{ priceId: number; batch: number; units: number }> = []
+  purchasesByLot: Array<{ priceId: number; batch: number; units: number }> = [],
+  loteDisponivelId?: number
 ): { distribution: LotDistribution[]; totalPrice: number; canAdd: boolean } => {
   // Ordenar preços por batch
   const sortedPrices = [...prices].sort((a, b) => a.batch - b.batch);
@@ -21,8 +22,17 @@ export const calculateLotDistribution = (
     purchasesByLotMap.set(p.priceId, p.units);
   });
   
-  // Distribuir unidades pelos lotes
-  for (let i = 0; i < sortedPrices.length && remainingQuantity > 0; i++) {
+  // Se temos um loteDisponivelId, encontrar seu índice para começar a partir dele
+  let startIndex = 0;
+  if (loteDisponivelId !== undefined) {
+    const loteIndex = sortedPrices.findIndex(p => p.id === loteDisponivelId);
+    if (loteIndex !== -1) {
+      startIndex = loteIndex;
+    }
+  }
+  
+  // Distribuir unidades pelos lotes, começando do lote disponível se especificado
+  for (let i = startIndex; i < sortedPrices.length && remainingQuantity > 0; i++) {
     const price = sortedPrices[i];
     const quantidadeCompra = Number(price.quantidadeCompra) || 0;
     
@@ -80,6 +90,11 @@ export interface CartItem {
   price: number;
   originalPrice?: number;
   quantity: number;
+  variantId?: number; // ID da variação (modelo + tamanho)
+  variantInfo?: {
+    model: 'MASCULINO' | 'FEMININO' | 'UNISEX';
+    size: string;
+  };
   // Informações de lotes
   prices?: Array<{
     id: number;
@@ -90,6 +105,7 @@ export interface CartItem {
   lotDistribution?: LotDistribution[]; // Distribuição de unidades por lote
   agencyPurchaseCount?: number; // Total de unidades já compradas pela agência
   purchasesByLot?: Array<{ priceId: number; batch: number; units: number }>; // Compras por lote
+  loteDisponivelId?: number; // ID do lote disponível calculado pelo backend
 }
 
 interface CartContextType {
@@ -122,7 +138,11 @@ export const CartProvider = ({ children }: { children: ReactNode }) => {
 
   const addItem = (item: Omit<CartItem, "quantity">) => {
     setItems((prevItems) => {
-      const existingItem = prevItems.find((i) => i.id === item.id);
+      // Se tem variantId, buscar item com mesmo id E variantId
+      // Se não tem variantId, buscar apenas por id
+      const existingItem = item.variantId 
+        ? prevItems.find((i) => i.id === item.id && i.variantId === item.variantId)
+        : prevItems.find((i) => i.id === item.id && !i.variantId);
       
       if (existingItem) {
         // Se já existe, incrementar quantidade e recalcular distribuição
@@ -135,7 +155,8 @@ export const CartProvider = ({ children }: { children: ReactNode }) => {
             newQuantity,
             item.prices,
             item.agencyPurchaseCount || 0,
-            item.purchasesByLot || []
+            item.purchasesByLot || [],
+            item.loteDisponivelId
           );
           
           if (!canAdd) {
@@ -151,7 +172,8 @@ export const CartProvider = ({ children }: { children: ReactNode }) => {
               price: totalPrice / newQuantity, // Preço médio
               prices: item.prices, // Manter preços atualizados
               agencyPurchaseCount: item.agencyPurchaseCount,
-              purchasesByLot: item.purchasesByLot
+              purchasesByLot: item.purchasesByLot,
+              loteDisponivelId: item.loteDisponivelId
             } : i
           );
         }
@@ -170,7 +192,8 @@ export const CartProvider = ({ children }: { children: ReactNode }) => {
           1,
           item.prices,
           item.agencyPurchaseCount || 0,
-          item.purchasesByLot || []
+          item.purchasesByLot || [],
+          item.loteDisponivelId
         );
         
         if (!canAdd) {
@@ -211,7 +234,8 @@ export const CartProvider = ({ children }: { children: ReactNode }) => {
             quantity,
             item.prices,
             item.agencyPurchaseCount || 0,
-            item.purchasesByLot || []
+            item.purchasesByLot || [],
+            item.loteDisponivelId
           );
           
           if (!canAdd) {

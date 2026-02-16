@@ -24,6 +24,7 @@ import { productService, categoryService } from "@/services/api";
 import { toast } from "sonner";
 import CategoryDialog from "@/components/admin/CategoryDialog";
 import ProductDialog from "@/components/admin/ProductDialog";
+import { useTableSort } from "@/hooks/useTableSort";
 
 interface Product {
   id: number;
@@ -53,6 +54,8 @@ const AdminProducts = () => {
   const [isProductDialogOpen, setIsProductDialogOpen] = useState(false);
   const [editingProductId, setEditingProductId] = useState<number | null>(null);
   const [filterStatus, setFilterStatus] = useState<FilterStatus>("all");
+  
+  const { sortedData, handleSort, getSortIcon } = useTableSort(products);
 
   const loadProducts = async () => {
     try {
@@ -205,17 +208,47 @@ const AdminProducts = () => {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>ID</TableHead>
-                  <TableHead>Nome</TableHead>
-                  <TableHead>Categoria</TableHead>
-                  <TableHead>Descrição</TableHead>
-                  <TableHead>Quantidade</TableHead>
-                  <TableHead>Status</TableHead>
+                  <TableHead 
+                    className="cursor-pointer hover:bg-muted/50 select-none"
+                    onClick={() => handleSort("id")}
+                  >
+                    ID{getSortIcon("id")}
+                  </TableHead>
+                  <TableHead 
+                    className="cursor-pointer hover:bg-muted/50 select-none"
+                    onClick={() => handleSort("name")}
+                  >
+                    Nome{getSortIcon("name")}
+                  </TableHead>
+                  <TableHead 
+                    className="cursor-pointer hover:bg-muted/50 select-none"
+                    onClick={() => handleSort("categoryId")}
+                  >
+                    Categoria{getSortIcon("categoryId")}
+                  </TableHead>
+                  <TableHead 
+                    className="cursor-pointer hover:bg-muted/50 select-none"
+                    onClick={() => handleSort("description")}
+                  >
+                    Descrição{getSortIcon("description")}
+                  </TableHead>
+                  <TableHead 
+                    className="cursor-pointer hover:bg-muted/50 select-none"
+                    onClick={() => handleSort("quantity")}
+                  >
+                    Quantidade{getSortIcon("quantity")}
+                  </TableHead>
+                  <TableHead 
+                    className="cursor-pointer hover:bg-muted/50 select-none"
+                    onClick={() => handleSort("active")}
+                  >
+                    Status{getSortIcon("active")}
+                  </TableHead>
                   <TableHead className="text-right">Ações</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {products.map((product) => (
+                {sortedData.map((product) => (
                   <TableRow key={product.id}>
                     <TableCell className="font-medium">{product.id}</TableCell>
                     <TableCell>{product.name}</TableCell>
