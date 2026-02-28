@@ -28,9 +28,20 @@ import {
 } from "@/components/ui/carousel";
 import { useCart } from "@/contexts/CartContext";
 import { useAuth } from "@/contexts/AuthContext";
-import { productPriceService, orderService } from "@/services/api";
+import { productPriceService, orderService, sizeChartService } from "@/services/api";
 import { toast } from "sonner";
 import { formatPoints } from "@/lib/utils";
+
+// Helper para obter a base URL das imagens/assets
+const getAssetsBaseUrl = (): string => {
+  if (import.meta.env.VITE_API_URL) {
+    return import.meta.env.VITE_API_URL.replace('/api', '');
+  }
+  if (typeof window !== 'undefined' && window.location) {
+    return window.location.origin;
+  }
+  return "";
+};
 
 // Import images
 import tshirtWhite from "@/assets/tshirt-white.png";
@@ -111,6 +122,9 @@ const Product = () => {
   const [selectedSize, setSelectedSize] = useState<string>('');
   const [selectedVariantId, setSelectedVariantId] = useState<number | null>(null);
   const [isSizeChartOpen, setIsSizeChartOpen] = useState(false);
+  const [sizeChartsData, setSizeChartsData] = useState<Record<string, any[]>>({});
+  const [sizeChartsInfo, setSizeChartsInfo] = useState<Record<string, { imagePath?: string; name?: string }>>({});
+  const [isLoadingSizeCharts, setIsLoadingSizeCharts] = useState(false);
   const loadingRef = useRef(false);
   const lastRequestRef = useRef<{ id: number; agencyId?: number } | null>(null);
 
@@ -309,6 +323,62 @@ const Product = () => {
       setSelectedVariantId(variant?.id || null);
     }
   }, [selectedModel, selectedSize, product]);
+
+  // Carregar grades de tamanhos da API
+  useEffect(() => {
+    const loadSizeCharts = async () => {
+      const models: Array<'MASCULINO' | 'FEMININO' | 'UNISEX'> = ['MASCULINO', 'FEMININO', 'UNISEX'];
+      try {
+        setIsLoadingSizeCharts(true);
+        const charts: Record<string, any[]> = {};
+        const chartsInfo: Record<string, { imagePath?: string; name?: string }> = {};
+        
+        for (const model of models) {
+          try {
+            const data = await sizeChartService.getByModel(model);
+            if (data && data.length > 0) {
+              // Pegar a primeira grade ativa do modelo
+              const activeChart = data.find((chart: any) => chart.active) || data[0];
+              if (activeChart && activeChart.measurements && activeChart.measurements.length > 0) {
+                charts[model] = activeChart.measurements.map((m: any) => ({
+                  size: m.size,
+                  chest: m.chest,
+                  waist: m.waist,
+                  length: m.length,
+                  shoulder: m.shoulder,
+                  sleeve: m.sleeve,
+                }));
+                // Salvar informações da grade (imagem, nome)
+                chartsInfo[model] = {
+                  imagePath: activeChart.imagePath || activeChart.image_path || null,
+                  name: activeChart.name,
+                };
+              }
+            }
+          } catch (error) {
+            console.error(`Erro ao carregar grade para ${model}:`, error);
+          }
+        }
+        
+        setSizeChartsData(charts);
+        setSizeChartsInfo(chartsInfo);
+      } catch (error) {
+        console.error("Erro ao carregar grades de tamanhos:", error);
+      } finally {
+        setIsLoadingSizeCharts(false);
+      }
+    };
+
+    loadSizeCharts();
+  }, []);
+
+  // Obter a grade de medidas baseada no modelo selecionado
+  const getSizeChart = () => {
+    if (selectedModel && sizeChartsData[selectedModel]) {
+      return sizeChartsData[selectedModel];
+    }
+    return null;
+  };
 
   if (loading) {
     return (
@@ -602,18 +672,21 @@ const Product = () => {
                     </div>
                   )}
                   
-                  {/* Size Chart Button */}
-                  <div className="pt-2">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => setIsSizeChartOpen(true)}
-                      className="w-full"
-                    >
-                      <Ruler className="w-4 h-4 mr-2" />
-                      Tabela de Tamanhos
-                    </Button>
-                  </div>
+                </div>
+              )}
+
+              {/* Botão para ver Grade de Tamanhos */}
+              {selectedModel && (
+                <div className="p-4 border rounded-lg">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="w-full"
+                    onClick={() => setIsSizeChartOpen(true)}
+                  >
+                    <Ruler className="w-4 h-4 mr-2" />
+                    Ver Grade de Tamanhos - {getModelName(selectedModel)}
+                  </Button>
                 </div>
               )}
 
@@ -734,45 +807,98 @@ const Product = () => {
             <DialogHeader>
               <DialogTitle>Tabela de Tamanhos</DialogTitle>
               <DialogDescription>
-                Consulte as medidas para escolher o tamanho ideal
+                {selectedModel 
+                  ? `Consulte as medidas para ${getModelName(selectedModel)} - escolha o tamanho ideal`
+                  : 'Consulte as medidas para escolher o tamanho ideal. Selecione um modelo para ver as medidas específicas.'}
               </DialogDescription>
             </DialogHeader>
             
             <div className="space-y-4">
               {/* Tabela de medidas */}
-              <div className="border rounded-lg overflow-hidden">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Tamanho</TableHead>
-                      <TableHead>Peito (cm)</TableHead>
-                      <TableHead>Cintura (cm)</TableHead>
-                      <TableHead>Comprimento (cm)</TableHead>
-                      <TableHead>Ombro (cm)</TableHead>
-                      <TableHead>Manga (cm)</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {/* Exemplo de dados - será substituído por dados reais da API */}
-                    {[
-                      { size: 'P', chest: 48, waist: 44, length: 68, shoulder: 42, sleeve: 20 },
-                      { size: 'M', chest: 52, waist: 48, length: 70, shoulder: 44, sleeve: 21 },
-                      { size: 'G', chest: 56, waist: 52, length: 72, shoulder: 46, sleeve: 22 },
-                      { size: 'GG', chest: 60, waist: 56, length: 74, shoulder: 48, sleeve: 23 },
-                      { size: 'XG', chest: 64, waist: 60, length: 76, shoulder: 50, sleeve: 24 },
-                    ].map((row) => (
-                      <TableRow key={row.size}>
-                        <TableCell className="font-medium">{row.size}</TableCell>
-                        <TableCell>{row.chest}</TableCell>
-                        <TableCell>{row.waist}</TableCell>
-                        <TableCell>{row.length}</TableCell>
-                        <TableCell>{row.shoulder}</TableCell>
-                        <TableCell>{row.sleeve}</TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
+              {(() => {
+                const currentSizeChart = getSizeChart();
+                
+                if (isLoadingSizeCharts) {
+                  return (
+                    <div className="text-center py-8">
+                      <p className="text-sm text-muted-foreground">Carregando grades de tamanhos...</p>
+                    </div>
+                  );
+                }
+                
+                if (!currentSizeChart || currentSizeChart.length === 0) {
+                  // Se não houver modelo selecionado ou não houver grade cadastrada
+                  if (!selectedModel) {
+                    return (
+                      <div className="p-4 bg-muted rounded-lg">
+                        <p className="text-sm text-muted-foreground text-center">
+                          Selecione um modelo (Masculino ou Feminino) para ver a grade de tamanhos correspondente.
+                        </p>
+                      </div>
+                    );
+                  }
+                  
+                  return (
+                    <div className="p-4 bg-muted rounded-lg">
+                      <p className="text-sm text-muted-foreground text-center">
+                        Nenhuma grade de tamanhos cadastrada para o modelo {getModelName(selectedModel)}.
+                      </p>
+                    </div>
+                  );
+                }
+                
+                // Mostrar apenas a grade do modelo selecionado
+                return (
+                  <div className="border rounded-lg overflow-hidden">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Tamanho</TableHead>
+                          <TableHead>Peito (cm)</TableHead>
+                          <TableHead>Cintura (cm)</TableHead>
+                          <TableHead>Comprimento (cm)</TableHead>
+                          <TableHead>Ombro (cm)</TableHead>
+                          <TableHead>Manga (cm)</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {currentSizeChart.map((row, index) => (
+                          <TableRow key={row.size || index}>
+                            <TableCell className="font-medium">{row.size}</TableCell>
+                            <TableCell>{row.chest || "-"}</TableCell>
+                            <TableCell>{row.waist || "-"}</TableCell>
+                            <TableCell>{row.length || "-"}</TableCell>
+                            <TableCell>{row.shoulder || "-"}</TableCell>
+                            <TableCell>{row.sleeve || "-"}</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                );
+              })()}
+
+              {/* Imagem da grade de tamanhos (se houver) */}
+              {(() => {
+                if (!selectedModel) return null;
+                
+                const chartInfo = sizeChartsInfo[selectedModel];
+                if (!chartInfo || !chartInfo.imagePath) return null;
+                
+                const imageUrl = chartInfo.imagePath.startsWith('http') 
+                  ? chartInfo.imagePath 
+                  : `${getAssetsBaseUrl()}${chartInfo.imagePath}`;
+                
+                return (
+                  <div className="flex justify-center">
+                    <img
+                      src={imageUrl}
+                      alt={chartInfo.name || `Grade de Tamanhos - ${getModelName(selectedModel)}`}
+                      className="max-w-full h-auto rounded-lg border shadow-sm"
+                    />
+                  </div>
+                );
+              })()}
 
               {/* Instruções de como medir */}
               <div className="bg-muted p-4 rounded-lg">

@@ -32,7 +32,7 @@ exports.productVariantController = {
         }
         catch (error) {
             if (error instanceof zod_1.z.ZodError) {
-                return res.status(400).json({ message: 'Invalid input', errors: error.errors });
+                return res.status(400).json({ message: 'Invalid input', errors: error.issues });
             }
             if (error.message && error.message.includes('já existe')) {
                 return res.status(400).json({ message: error.message });
@@ -62,7 +62,7 @@ exports.productVariantController = {
         }
         catch (error) {
             if (error instanceof zod_1.z.ZodError) {
-                return res.status(400).json({ message: 'Invalid input', errors: error.errors });
+                return res.status(400).json({ message: 'Invalid input', errors: error.issues });
             }
             if (error.message && error.message.includes('já existe')) {
                 return res.status(400).json({ message: error.message });

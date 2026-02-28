@@ -13,8 +13,10 @@ const getApiUrl = (): string => {
     if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
       return "http://localhost:5001/api";
     }
+    // Em produção, usar URL relativa com /api
     return "/api";
   }
+  // Fallback: usar /api
   return "/api";
 };
 const API_URL = getApiUrl();

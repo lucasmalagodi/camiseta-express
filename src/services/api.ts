@@ -11,11 +11,11 @@ const getApiUrl = (): string => {
     if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
       return "http://localhost:5001/api";
     }
-    // Caso contrário, usar URL relativa (Nginx fará proxy)
+    // Em produção, usar URL relativa com /api
     return "/api";
   }
   
-  // Fallback: usar /api (URL relativa)
+  // Fallback: usar /api
   return "/api";
 };
 
@@ -1145,7 +1145,7 @@ export const adminUserService = {
     return await response.json();
   },
 
-  async update(id: number, data: { name?: string; role?: string }) {
+  async update(id: number, data: { name?: string; role?: string; password?: string }) {
     const response = await fetch(`${getApiUrlValue()}/admin/users/${id}`, {
       method: "PUT",
       headers: getAuthHeaders(),
@@ -1923,5 +1923,201 @@ export const executiveNotificationEmailService = {
       throw new Error(error.message || "Erro ao deletar email de notificação");
     }
     return await response.json();
+  },
+};
+
+// Size Chart Service
+export const sizeChartService = {
+  async getAll() {
+    const response = await fetch(`${getApiUrlValue()}/size-charts`, {
+      headers: getAuthHeaders(),
+    });
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.message || "Erro ao buscar grades de tamanho");
+    }
+    return await response.json();
+  },
+
+  async getByModel(model: 'MASCULINO' | 'FEMININO' | 'UNISEX') {
+    const response = await fetch(`${getApiUrlValue()}/size-charts/model/${model}`, {
+      headers: getPublicHeaders(),
+    });
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.message || "Erro ao buscar grade de tamanho do modelo");
+    }
+    return await response.json();
+  },
+
+  async getById(id: number) {
+    const response = await fetch(`${getApiUrlValue()}/size-charts/${id}`, {
+      headers: getAuthHeaders(),
+    });
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.message || "Erro ao buscar grade de tamanho");
+    }
+    return await response.json();
+  },
+
+  async create(data: {
+    name: string;
+    description?: string;
+    categoryId: number;
+    model: 'MASCULINO' | 'FEMININO' | 'UNISEX';
+    measurements: Array<{
+      size: string;
+      chest?: number;
+      waist?: number;
+      length?: number;
+      shoulder?: number;
+      sleeve?: number;
+    }>;
+  }) {
+    const response = await fetch(`${getApiUrlValue()}/size-charts`, {
+      method: "POST",
+      headers: getAuthHeaders(),
+      body: JSON.stringify(data),
+    });
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.message || "Erro ao criar grade de tamanho");
+    }
+    return await response.json();
+  },
+
+  async update(id: number, data: {
+    name?: string;
+    description?: string;
+    active?: boolean;
+    measurements?: Array<{
+      id?: number;
+      size: string;
+      chest?: number;
+      waist?: number;
+      length?: number;
+      shoulder?: number;
+      sleeve?: number;
+    }>;
+  }) {
+    const response = await fetch(`${getApiUrlValue()}/size-charts/${id}`, {
+      method: "PUT",
+      headers: getAuthHeaders(),
+      body: JSON.stringify(data),
+    });
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.message || "Erro ao atualizar grade de tamanho");
+    }
+    return await response.json();
+  },
+
+  async delete(id: number) {
+    const response = await fetch(`${getApiUrlValue()}/size-charts/${id}`, {
+      method: "DELETE",
+      headers: getAuthHeaders(),
+    });
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.message || "Erro ao deletar grade de tamanho");
+    }
+    return await response.json();
+  },
+
+  async uploadImage(id: number, file: File) {
+    const formData = new FormData();
+    formData.append("image", file);
+    
+    const token = localStorage.getItem("adminToken");
+    const response = await fetch(`${getApiUrlValue()}/size-charts/${id}/image`, {
+      method: "POST",
+      headers: {
+        ...(token && { Authorization: `Bearer ${token}` }),
+      },
+      body: formData,
+    });
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.message || "Erro ao fazer upload da imagem");
+    }
+    return await response.json();
+  },
+};
+
+// Backup Service
+export const backupService = {
+  async getAll() {
+    const response = await fetch(`${getApiUrlValue()}/admin/backups`, {
+      headers: getAuthHeaders(),
+    });
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.message || "Erro ao buscar backups");
+    }
+    const data = await response.json();
+    return data.data || [];
+  },
+
+  async getById(id: number) {
+    const response = await fetch(`${getApiUrlValue()}/admin/backups/${id}`, {
+      headers: getAuthHeaders(),
+    });
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.message || "Erro ao buscar backup");
+    }
+    const data = await response.json();
+    return data.data;
+  },
+
+  async create() {
+    const response = await fetch(`${getApiUrlValue()}/admin/backups/create`, {
+      method: "POST",
+      headers: getAuthHeaders(),
+    });
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.message || "Erro ao criar backup");
+    }
+    return await response.json();
+  },
+
+  async download(id: number) {
+    const token = localStorage.getItem("adminToken");
+    const response = await fetch(`${getApiUrlValue()}/admin/backups/${id}/download`, {
+      headers: {
+        ...(token && { Authorization: `Bearer ${token}` }),
+      },
+    });
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.message || "Erro ao fazer download do backup");
+    }
+    return response;
+  },
+
+  async delete(id: number) {
+    const response = await fetch(`${getApiUrlValue()}/admin/backups/${id}`, {
+      method: "DELETE",
+      headers: getAuthHeaders(),
+    });
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.message || "Erro ao deletar backup");
+    }
+    return await response.json();
+  },
+
+  async validate(id: number) {
+    const response = await fetch(`${getApiUrlValue()}/admin/backups/${id}/validate`, {
+      headers: getAuthHeaders(),
+    });
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.message || "Erro ao validar backup");
+    }
+    const data = await response.json();
+    return data.data;
   },
 };

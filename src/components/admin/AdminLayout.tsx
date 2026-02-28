@@ -1,7 +1,7 @@
 import { Outlet, useNavigate, useLocation, Link } from "react-router-dom";
 import { useAdminAuth } from "@/contexts/AdminAuthContext";
 import { Button } from "@/components/ui/button";
-import { LogOut, Shield, Home, Package, FileSpreadsheet, Building2, Settings, ShoppingCart, Star, MessageSquare, BarChart3, FileText } from "lucide-react";
+import { LogOut, Shield, Home, Package, FileSpreadsheet, Building2, Settings, ShoppingCart, Star, MessageSquare, BarChart3, FileText, Users, Database } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useOrderNotifications } from "@/hooks/useOrderNotifications";
@@ -30,6 +30,8 @@ const AdminLayout = () => {
     { path: "/admin/relatorios", label: "Relatórios", icon: BarChart3 },
     { path: "/admin/tickets", label: "Tickets de Suporte", icon: MessageSquare },
     { path: "/admin/documentos-legais", label: "Documentos Legais", icon: FileText },
+    { path: "/admin/usuarios", label: "Usuários Admin", icon: Users },
+    { path: "/admin/backups", label: "Backups", icon: Database },
     { path: "/admin/configuracoes", label: "Configurações", icon: Settings },
   ];
 

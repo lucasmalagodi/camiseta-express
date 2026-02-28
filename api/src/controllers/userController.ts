@@ -13,6 +13,7 @@ const createUserSchema = z.object({
 const updateUserSchema = z.object({
     name: z.string().min(2, 'Nome deve ter pelo menos 2 caracteres').optional(),
     role: z.enum(['admin', 'user', 'agency']).optional(),
+    password: z.string().min(6, 'Senha deve ter pelo menos 6 caracteres').optional(),
 });
 
 const updateStatusSchema = z.object({
@@ -118,7 +119,14 @@ export const userController = {
             }
 
             const data = updateUserSchema.parse(req.body);
-            await userService.update(id, data);
+            
+            // Se senha foi fornecida, fazer hash antes de atualizar
+            const updateData: any = { ...data };
+            if (data.password) {
+                updateData.password = await bcrypt.hash(data.password, 10);
+            }
+            
+            await userService.update(id, updateData);
 
             res.json({ 
                 success: true, 

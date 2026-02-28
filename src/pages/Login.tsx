@@ -583,7 +583,7 @@ const Login = () => {
   };
 
   return (
-    <div className={`min-h-screen bg-background flex items-center justify-center px-4 py-12 relative ${requiresVerification ? 'pt-24' : ''}`}>
+    <div className={`min-h-screen bg-background flex items-center justify-center px-4 py-12 relative login-bg ${requiresVerification ? 'pt-24' : ''}`}>
       {/* Banner fixo de verificação de dispositivo */}
       {requiresVerification && (
         <div className="fixed top-0 left-0 right-0 w-full bg-primary text-primary-foreground py-4 z-50 shadow-lg">

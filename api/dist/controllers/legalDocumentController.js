@@ -1,8 +1,13 @@
 "use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.legalDocumentController = void 0;
 const zod_1 = require("zod");
 const legalDocumentService_1 = require("../services/legalDocumentService");
+const agencyService_1 = require("../services/agencyService");
+const crypto_1 = __importDefault(require("crypto"));
 const createDocumentSchema = zod_1.z.object({
     type: zod_1.z.enum(['TERMS', 'PRIVACY', 'CAMPAIGN_RULES']),
     content: zod_1.z.string().min(1),
@@ -45,8 +50,8 @@ exports.legalDocumentController = {
     },
     async findByType(req, res) {
         try {
-            const { type } = req.params;
-            if (!['TERMS', 'PRIVACY', 'CAMPAIGN_RULES'].includes(type)) {
+            const type = Array.isArray(req.params.type) ? req.params.type[0] : req.params.type;
+            if (!type || !['TERMS', 'PRIVACY', 'CAMPAIGN_RULES'].includes(type)) {
                 return res.status(400).json({ message: 'Invalid document type' });
             }
             const documents = await legalDocumentService_1.legalDocumentService.findByType(type);
@@ -112,8 +117,8 @@ exports.legalDocumentController = {
     },
     async getActiveByType(req, res) {
         try {
-            const { type } = req.params;
-            if (!['TERMS', 'PRIVACY', 'CAMPAIGN_RULES'].includes(type)) {
+            const type = Array.isArray(req.params.type) ? req.params.type[0] : req.params.type;
+            if (!type || !['TERMS', 'PRIVACY', 'CAMPAIGN_RULES'].includes(type)) {
                 return res.status(400).json({ message: 'Invalid document type' });
             }
             const document = await legalDocumentService_1.legalDocumentService.findActiveByType(type);
@@ -173,6 +178,47 @@ exports.legalDocumentController = {
             res.json(accepted);
         }
         catch (error) {
+            console.error(error);
+            res.status(500).json({ message: 'Internal server error' });
+        }
+    },
+    async acceptDocumentDuringLogin(req, res) {
+        try {
+            const { email, password, legal_document_ids } = zod_1.z.object({
+                email: zod_1.z.string().email(),
+                password: zod_1.z.string().min(1),
+                legal_document_ids: zod_1.z.array(zod_1.z.number().int().positive())
+            }).parse(req.body);
+            // Validar credenciais primeiro
+            const normalizedEmail = email.trim().toLowerCase();
+            const agency = await agencyService_1.agencyService.findByEmail(normalizedEmail);
+            if (!agency || !agency.active) {
+                return res.status(401).json({ message: 'Credenciais inválidas' });
+            }
+            // Verificar senha
+            const passwordHash = crypto_1.default.createHash('md5').update(password).digest('hex');
+            const storedPassword = (agency.password || '').trim().toLowerCase();
+            const inputHash = passwordHash.toLowerCase();
+            if (inputHash !== storedPassword) {
+                return res.status(401).json({ message: 'Credenciais inválidas' });
+            }
+            // Aceitar documentos
+            const ipAddress = req.ip || req.headers['x-forwarded-for'] || undefined;
+            const userAgent = req.headers['user-agent'] || undefined;
+            for (const docId of legal_document_ids) {
+                await legalDocumentService_1.legalDocumentService.createAcceptance({
+                    agency_id: agency.id,
+                    legal_document_id: docId,
+                    ip_address: ipAddress,
+                    user_agent: userAgent
+                });
+            }
+            res.json({ success: true });
+        }
+        catch (error) {
+            if (error instanceof zod_1.z.ZodError) {
+                return res.status(400).json({ message: 'Invalid input', errors: error.issues });
+            }
             console.error(error);
             res.status(500).json({ message: 'Internal server error' });
         }

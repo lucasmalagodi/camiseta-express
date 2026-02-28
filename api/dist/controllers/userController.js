@@ -16,6 +16,7 @@ const createUserSchema = zod_1.z.object({
 const updateUserSchema = zod_1.z.object({
     name: zod_1.z.string().min(2, 'Nome deve ter pelo menos 2 caracteres').optional(),
     role: zod_1.z.enum(['admin', 'user', 'agency']).optional(),
+    password: zod_1.z.string().min(6, 'Senha deve ter pelo menos 6 caracteres').optional(),
 });
 const updateStatusSchema = zod_1.z.object({
     active: zod_1.z.boolean(),
@@ -107,7 +108,12 @@ exports.userController = {
                 return res.status(404).json({ message: 'Usuário não encontrado' });
             }
             const data = updateUserSchema.parse(req.body);
-            await userService_1.userService.update(id, data);
+            // Se senha foi fornecida, fazer hash antes de atualizar
+            const updateData = { ...data };
+            if (data.password) {
+                updateData.password = await bcryptjs_1.default.hash(data.password, 10);
+            }
+            await userService_1.userService.update(id, updateData);
             res.json({
                 success: true,
                 id,

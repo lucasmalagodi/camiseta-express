@@ -34,9 +34,20 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Plus, Trash2, Package, Image, DollarSign, Pencil, RotateCcw, ArrowUp, ArrowDown, Star, Shirt } from "lucide-react";
-import { productService, categoryService, productImageService, productPriceService, productVariantService } from "@/services/api";
+import { productService, categoryService, productImageService, productPriceService, productVariantService, sizeChartService } from "@/services/api";
 import { toast } from "sonner";
 import { formatPoints } from "@/lib/utils";
+
+// Helper para obter a URL base dos assets
+const getAssetsBaseUrl = (): string => {
+  if (import.meta.env.VITE_API_URL) {
+    return import.meta.env.VITE_API_URL.replace('/api', '');
+  }
+  if (typeof window !== 'undefined' && window.location) {
+    return window.location.origin;
+  }
+  return "";
+};
 
 interface Category {
   id: number;
@@ -96,6 +107,28 @@ const ProductDialog = ({
     stock: "0",
   });
   const [editingVariantId, setEditingVariantId] = useState<number | null>(null);
+
+  // Size Chart states
+  const [sizeCharts, setSizeCharts] = useState<any[]>([]);
+  const [isLoadingSizeCharts, setIsLoadingSizeCharts] = useState(false);
+  const [sizeChartForm, setSizeChartForm] = useState<{
+    model: 'MASCULINO' | 'FEMININO' | 'UNISEX' | '';
+    measurements: Array<{
+      id?: number;
+      size: string;
+      chest: string;
+      waist: string;
+      length: string;
+      shoulder: string;
+      sleeve: string;
+    }>;
+  }>({
+    model: "" as 'MASCULINO' | 'FEMININO' | 'UNISEX' | '',
+    measurements: [],
+  });
+  const [editingSizeChartId, setEditingSizeChartId] = useState<number | null>(null);
+  const [sizeChartImage, setSizeChartImage] = useState<File | null>(null);
+  const [isUploadingSizeChartImage, setIsUploadingSizeChartImage] = useState(false);
 
   const loadCategories = async () => {
     try {
@@ -172,7 +205,7 @@ const ProductDialog = ({
           name: "",
           description: "",
           categoryId: "",
-          quantity: "0",
+          quantity: "",
         });
         setProductId(null);
         setActiveTab("product");
@@ -185,6 +218,10 @@ const ProductDialog = ({
         setSelectedFile(null);
         setSelectedFiles([]);
         setIsLoading(false);
+        setSizeCharts([]);
+        setSizeChartForm({ model: "" as 'MASCULINO' | 'FEMININO' | 'UNISEX' | '', measurements: [] });
+        setEditingSizeChartId(null);
+        setSizeChartImage(null);
       }
     } else {
       // Resetar quando fechar
@@ -193,7 +230,7 @@ const ProductDialog = ({
         name: "",
         description: "",
         categoryId: "",
-        quantity: "0",
+        quantity: "",
       });
         setImages([]);
         setPrices([]);
@@ -207,6 +244,10 @@ const ProductDialog = ({
         setVariantForm({ model: "", size: "", stock: "0" });
         setSelectedFile(null);
         setSelectedFiles([]);
+        setSizeCharts([]);
+        setSizeChartForm({ model: "" as 'MASCULINO' | 'FEMININO' | 'UNISEX' | '', measurements: [] });
+        setEditingSizeChartId(null);
+        setSizeChartImage(null);
     }
   }, [open, initialProductId]);
 
@@ -217,6 +258,12 @@ const ProductDialog = ({
       loadVariants();
     }
   }, [productId, activeTab, open]);
+
+  useEffect(() => {
+    if (open && formData.categoryId) {
+      loadSizeCharts();
+    }
+  }, [formData.categoryId, open]);
 
   const loadImages = async () => {
     if (!productId) return;
@@ -257,8 +304,8 @@ const ProductDialog = ({
         .filter((v: any) => v.active)
         .reduce((sum: number, v: any) => sum + (Number(v.stock) || 0), 0);
       
-      // Atualizar quantidade no formData
-      setFormData(prev => ({ ...prev, quantity: totalQuantity.toString() }));
+      // Atualizar quantidade do produto no banco de dados
+      await productService.update(productId, { quantity: totalQuantity });
     } catch (error) {
       console.error("Erro ao carregar variações:", error);
       setVariants([]);
@@ -290,10 +337,10 @@ const ProductDialog = ({
       
       if (productId) {
         // Modo de edição - atualizar produto existente
-        // Se tem variações, calcular quantidade automaticamente
+        // Calcular quantidade automaticamente pelas variações
         const quantityToUse = variants.length > 0 
           ? calculateTotalQuantity()
-          : parseInt(formData.quantity) || 0;
+          : 0;
         
         await productService.update(productId, {
           name: formData.name,
@@ -304,12 +351,12 @@ const ProductDialog = ({
         toast.success("Produto atualizado com sucesso!");
         onProductChange?.();
       } else {
-        // Modo de criação - criar novo produto
+        // Modo de criação - criar novo produto (quantidade inicial será 0, será calculada pelas variações)
         const result = await productService.create({
           name: formData.name,
           description: formData.description,
           categoryId: parseInt(formData.categoryId),
-          quantity: parseInt(formData.quantity) || 0,
+          quantity: 0,
         });
         toast.success("Produto criado com sucesso!");
         setProductId(result.id);
@@ -418,8 +465,10 @@ const ProductDialog = ({
           if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
             return "http://localhost:5001/api";
           }
+          // Em produção, usar URL relativa com /api
           return "/api";
         }
+        // Fallback: usar /api
         return "/api";
       };
       const API_URL = getApiUrl();
@@ -675,13 +724,18 @@ const ProductDialog = ({
         toast.success("Variação adicionada com sucesso!");
         setVariantForm({ model: "", size: "", stock: "0" });
       }
-      await loadVariants();
       
-      // Atualizar quantidade do produto após salvar variação
-      const totalQuantity = calculateTotalQuantity();
-      if (productId) {
-        await productService.update(productId, { quantity: totalQuantity });
-      }
+      // Carregar variações atualizadas
+      const updatedVariants = await productVariantService.getAll(productId);
+      setVariants(Array.isArray(updatedVariants) ? updatedVariants : []);
+      
+      // Calcular quantidade total baseada nas variações ativas
+      const totalQuantity = updatedVariants
+        .filter((v: any) => v.active)
+        .reduce((sum: number, v: any) => sum + (Number(v.stock) || 0), 0);
+      
+      // Atualizar quantidade do produto
+      await productService.update(productId, { quantity: totalQuantity });
     } catch (error: any) {
       toast.error(error.message || "Erro ao salvar variação");
       console.error(error);
@@ -695,10 +749,17 @@ const ProductDialog = ({
     try {
       await productVariantService.delete(productId, variantId);
       toast.success("Variação desativada com sucesso!");
-      await loadVariants();
       
-      // Atualizar quantidade do produto após desativar variação
-      const totalQuantity = calculateTotalQuantity();
+      // Carregar variações atualizadas
+      const updatedVariants = await productVariantService.getAll(productId);
+      setVariants(Array.isArray(updatedVariants) ? updatedVariants : []);
+      
+      // Calcular quantidade total baseada nas variações ativas
+      const totalQuantity = updatedVariants
+        .filter((v: any) => v.active)
+        .reduce((sum: number, v: any) => sum + (Number(v.stock) || 0), 0);
+      
+      // Atualizar quantidade do produto
       await productService.update(productId, { quantity: totalQuantity });
     } catch (error: any) {
       toast.error("Erro ao desativar variação");
@@ -711,15 +772,187 @@ const ProductDialog = ({
     try {
       await productVariantService.update(productId, variantId, { active: true });
       toast.success("Variação ativada com sucesso!");
-      await loadVariants();
       
-      // Atualizar quantidade do produto após ativar variação
-      const totalQuantity = calculateTotalQuantity();
+      // Carregar variações atualizadas
+      const updatedVariants = await productVariantService.getAll(productId);
+      setVariants(Array.isArray(updatedVariants) ? updatedVariants : []);
+      
+      // Calcular quantidade total baseada nas variações ativas
+      const totalQuantity = updatedVariants
+        .filter((v: any) => v.active)
+        .reduce((sum: number, v: any) => sum + (Number(v.stock) || 0), 0);
+      
+      // Atualizar quantidade do produto
       await productService.update(productId, { quantity: totalQuantity });
     } catch (error: any) {
       toast.error("Erro ao ativar variação");
       console.error(error);
     }
+  };
+
+  // Size Chart functions
+  const loadSizeCharts = async () => {
+    if (!formData.categoryId) return;
+    try {
+      setIsLoadingSizeCharts(true);
+      const allSizeCharts = await sizeChartService.getAll();
+      // Filtrar por categoria
+      const categoryId = parseInt(formData.categoryId);
+      const filtered = allSizeCharts.filter((chart: any) => chart.categoryId === categoryId);
+      setSizeCharts(Array.isArray(filtered) ? filtered : []);
+    } catch (error: any) {
+      console.error("Erro ao carregar grades de tamanho:", error);
+      setSizeCharts([]);
+    } finally {
+      setIsLoadingSizeCharts(false);
+    }
+  };
+
+  const handleAddMeasurementRow = () => {
+    setSizeChartForm({
+      ...sizeChartForm,
+      measurements: [
+        ...sizeChartForm.measurements,
+        { size: "", chest: "", waist: "", length: "", shoulder: "", sleeve: "" },
+      ],
+    });
+  };
+
+  const handleRemoveMeasurementRow = (index: number) => {
+    const newMeasurements = sizeChartForm.measurements.filter((_, i) => i !== index);
+    setSizeChartForm({ ...sizeChartForm, measurements: newMeasurements });
+  };
+
+  const handleUpdateMeasurement = (index: number, field: string, value: string) => {
+    const newMeasurements = [...sizeChartForm.measurements];
+    newMeasurements[index] = { ...newMeasurements[index], [field]: value };
+    setSizeChartForm({ ...sizeChartForm, measurements: newMeasurements });
+  };
+
+  const handleSaveSizeChart = async () => {
+    if (!formData.categoryId) {
+      toast.error("Selecione uma categoria primeiro");
+      return;
+    }
+
+    if (!sizeChartForm.model) {
+      toast.error("Selecione um modelo");
+      return;
+    }
+
+    if (sizeChartForm.measurements.length === 0) {
+      toast.error("Adicione pelo menos uma medida");
+      return;
+    }
+
+    try {
+      setIsLoading(true);
+      const measurements = sizeChartForm.measurements.map((m) => ({
+        size: m.size,
+        chest: m.chest ? parseFloat(m.chest) : undefined,
+        waist: m.waist ? parseFloat(m.waist) : undefined,
+        length: m.length ? parseFloat(m.length) : undefined,
+        shoulder: m.shoulder ? parseFloat(m.shoulder) : undefined,
+        sleeve: m.sleeve ? parseFloat(m.sleeve) : undefined,
+      }));
+
+      if (editingSizeChartId) {
+        // Atualizar grade existente
+        await sizeChartService.update(editingSizeChartId, {
+          measurements: measurements.map((m, index) => ({
+            id: sizeChartForm.measurements[index].id,
+            ...m,
+          })),
+        });
+        toast.success("Grade de tamanho atualizada com sucesso!");
+      } else {
+        // Criar nova grade
+        const category = categories.find((c) => c.id.toString() === formData.categoryId);
+        const result = await sizeChartService.create({
+          name: `Grade ${sizeChartForm.model} - ${category?.name || "Categoria"}`,
+          categoryId: parseInt(formData.categoryId),
+          model: sizeChartForm.model,
+          measurements,
+        });
+
+        // Upload de imagem se houver
+        if (sizeChartImage && result.id) {
+          try {
+            setIsUploadingSizeChartImage(true);
+            await sizeChartService.uploadImage(result.id, sizeChartImage);
+            toast.success("Imagem da grade enviada com sucesso!");
+          } catch (error: any) {
+            console.error("Erro ao fazer upload da imagem:", error);
+            toast.error("Erro ao fazer upload da imagem, mas a grade foi criada");
+          } finally {
+            setIsUploadingSizeChartImage(false);
+          }
+        }
+
+        toast.success("Grade de tamanho criada com sucesso!");
+      }
+
+      // Limpar formulário
+      setSizeChartForm({
+        model: "" as 'MASCULINO' | 'FEMININO' | 'UNISEX' | '',
+        measurements: [],
+      });
+      setEditingSizeChartId(null);
+      setSizeChartImage(null);
+      await loadSizeCharts();
+    } catch (error: any) {
+      toast.error(error.message || "Erro ao salvar grade de tamanho");
+      console.error(error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleEditSizeChart = async (sizeChart: any) => {
+    try {
+      setIsLoadingSizeCharts(true);
+      const fullSizeChart = await sizeChartService.getById(sizeChart.id);
+      setSizeChartForm({
+        model: fullSizeChart.model || "",
+        measurements: fullSizeChart.measurements?.map((m: any) => ({
+          id: m.id,
+          size: m.size || "",
+          chest: m.chest?.toString() || "",
+          waist: m.waist?.toString() || "",
+          length: m.length?.toString() || "",
+          shoulder: m.shoulder?.toString() || "",
+          sleeve: m.sleeve?.toString() || "",
+        })) || [],
+      });
+      setEditingSizeChartId(sizeChart.id);
+    } catch (error: any) {
+      toast.error("Erro ao carregar grade de tamanho");
+      console.error(error);
+    } finally {
+      setIsLoadingSizeCharts(false);
+    }
+  };
+
+  const handleDeleteSizeChart = async (id: number) => {
+    if (!confirm("Tem certeza que deseja excluir esta grade de tamanho?")) return;
+
+    try {
+      await sizeChartService.delete(id);
+      toast.success("Grade de tamanho excluída com sucesso!");
+      await loadSizeCharts();
+    } catch (error: any) {
+      toast.error("Erro ao excluir grade de tamanho");
+      console.error(error);
+    }
+  };
+
+  const handleCancelEditSizeChart = () => {
+    setSizeChartForm({
+      model: "" as 'MASCULINO' | 'FEMININO' | 'UNISEX' | '',
+      measurements: [],
+    });
+    setEditingSizeChartId(null);
+    setSizeChartImage(null);
   };
 
   const handleClose = () => {
@@ -864,33 +1097,6 @@ const ProductDialog = ({
                 />
               </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="product-quantity">
-                  Quantidade Total
-                  {productId && variants.length > 0 && (
-                    <span className="text-xs text-muted-foreground ml-2">
-                      (calculada automaticamente pelas variações)
-                    </span>
-                  )}
-                </Label>
-                <Input
-                  id="product-quantity"
-                  type="number"
-                  min="0"
-                  placeholder="0"
-                  value={productId && variants.length > 0 ? calculateTotalQuantity().toString() : formData.quantity}
-                  onChange={(e) =>
-                    setFormData({ ...formData, quantity: e.target.value })
-                  }
-                  disabled={isLoading || (productId && variants.length > 0)}
-                  className={productId && variants.length > 0 ? "bg-muted cursor-not-allowed" : ""}
-                />
-                {productId && variants.length > 0 && (
-                  <p className="text-xs text-muted-foreground">
-                    A quantidade é calculada automaticamente pela soma do estoque de todas as variações ativas.
-                  </p>
-                )}
-              </div>
 
               <div className="flex justify-end gap-2">
                 <Button

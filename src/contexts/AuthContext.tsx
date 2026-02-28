@@ -46,8 +46,10 @@ const getApiUrl = (): string => {
     if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
       return "http://localhost:5001/api";
     }
+    // Em produção, usar URL relativa com /api
     return "/api";
   }
+  // Fallback: usar /api
   return "/api";
 };
 
@@ -61,15 +63,18 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   useEffect(() => {
     const storedAgency = localStorage.getItem("agency");
     const storedToken = localStorage.getItem("agencyToken");
-    if (storedAgency) {
+    // Só carregar a agência se houver token válido
+    if (storedAgency && storedToken) {
       const agencyData = JSON.parse(storedAgency);
       // Sempre garantir que o token esteja no objeto agency
-      if (storedToken) {
-        agencyData.token = storedToken;
-        // Atualizar o localStorage com o token incluído
-        localStorage.setItem("agency", JSON.stringify(agencyData));
-      }
+      agencyData.token = storedToken;
+      // Atualizar o localStorage com o token incluído
+      localStorage.setItem("agency", JSON.stringify(agencyData));
       setAgency(agencyData);
+    } else if (storedAgency && !storedToken) {
+      // Se há agência mas não há token, limpar dados inválidos
+      localStorage.removeItem("agency");
+      setAgency(null);
     }
   }, []);
 
@@ -427,6 +432,11 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     };
   }, [agency?.token, updatePoints]);
 
+  // isAuthenticated deve verificar tanto agency quanto token
+  const isAuthenticated = useMemo(() => {
+    return !!(agency && agency.token);
+  }, [agency]);
+
   return (
     <AuthContext.Provider
       value={{
@@ -434,7 +444,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         login,
         verifyCode,
         logout,
-        isAuthenticated: !!agency,
+        isAuthenticated,
         updatePoints,
         refreshPoints,
         forceRefreshPoints,

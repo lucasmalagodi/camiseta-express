@@ -11,7 +11,7 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { FolderPlus, Plus, Pencil, RotateCcw, Power } from "lucide-react";
+import { FolderPlus, Plus, Pencil, RotateCcw, Power, Ruler } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -24,6 +24,7 @@ import { productService, categoryService } from "@/services/api";
 import { toast } from "sonner";
 import CategoryDialog from "@/components/admin/CategoryDialog";
 import ProductDialog from "@/components/admin/ProductDialog";
+import SizeChartDialog from "@/components/admin/SizeChartDialog";
 import { useTableSort } from "@/hooks/useTableSort";
 
 interface Product {
@@ -52,6 +53,7 @@ const AdminProducts = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [isCategoryDialogOpen, setIsCategoryDialogOpen] = useState(false);
   const [isProductDialogOpen, setIsProductDialogOpen] = useState(false);
+  const [isSizeChartDialogOpen, setIsSizeChartDialogOpen] = useState(false);
   const [editingProductId, setEditingProductId] = useState<number | null>(null);
   const [filterStatus, setFilterStatus] = useState<FilterStatus>("all");
   
@@ -164,6 +166,13 @@ const AdminProducts = () => {
           >
             <FolderPlus className="w-4 h-4 mr-2" />
             Categorias
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => setIsSizeChartDialogOpen(true)}
+          >
+            <Ruler className="w-4 h-4 mr-2" />
+            Grade de Tamanhos
           </Button>
           <Button onClick={handleAddProduct}>
             <Plus className="w-4 h-4 mr-2" />
@@ -311,6 +320,12 @@ const AdminProducts = () => {
         onOpenChange={handleProductDialogClose}
         onProductChange={loadProducts}
         productId={editingProductId}
+      />
+
+      {/* Dialog de grades de tamanhos */}
+      <SizeChartDialog
+        open={isSizeChartDialogOpen}
+        onOpenChange={setIsSizeChartDialogOpen}
       />
     </div>
   );

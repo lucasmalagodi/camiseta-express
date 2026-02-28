@@ -30,6 +30,8 @@ import AdminReports from "./pages/admin/AdminReports";
 import AdminReportBuilder from "./pages/admin/AdminReportBuilder";
 import AdminReportView from "./pages/admin/AdminReportView";
 import AdminLegalDocuments from "./pages/admin/AdminLegalDocuments";
+import AdminUsers from "./pages/admin/AdminUsers";
+import AdminBackups from "./pages/admin/AdminBackups";
 import CheckoutConfirmation from "./pages/CheckoutConfirmation";
 import CheckoutInstructions from "./pages/CheckoutInstructions";
 import Cart from "./pages/Cart";
@@ -100,6 +102,8 @@ const App = () => (
                   <Route path="tickets" element={<AdminTickets />} />
                   <Route path="tickets/:id" element={<AdminTicketDetail />} />
                   <Route path="documentos-legais" element={<AdminLegalDocuments />} />
+                  <Route path="usuarios" element={<AdminUsers />} />
+                  <Route path="backups" element={<AdminBackups />} />
                   <Route path="relatorios" element={<AdminReports />} />
                   <Route path="relatorios/novo" element={<AdminReportBuilder />} />
                   <Route path="relatorios/:id" element={<AdminReportView />} />

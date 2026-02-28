@@ -552,11 +552,12 @@ exports.agencyController = {
                 currentPassword: zod_1.z.string().min(1),
                 newPassword: zod_1.z.string().min(6)
             }).parse(req.body);
-            // Buscar agência
-            const agency = await agencyService_1.agencyService.findById(req.agency.id);
-            if (!agency || !agency.password) {
+            // Buscar agência com senha
+            const agencyResult = await (0, db_1.query)('SELECT id, password FROM agencies WHERE id = ?', [req.agency.id]);
+            if (!Array.isArray(agencyResult) || agencyResult.length === 0 || !agencyResult[0].password) {
                 return res.status(404).json({ message: 'Agency not found' });
             }
+            const agency = agencyResult[0];
             // Verificar senha atual
             const currentHash = crypto_1.default.createHash('md5').update(currentPassword).digest('hex');
             const storedPassword = (agency.password || '').trim().toLowerCase();

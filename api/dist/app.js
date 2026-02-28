@@ -23,7 +23,7 @@ app.use((0, helmet_1.default)({
 }));
 app.use((0, cors_1.default)({
     origin: function (origin, callback) {
-        // Permitir requisições sem origin (mobile apps, Postman, etc)
+        // Permitir requisições sem origin (mobile apps, Postman, requisições do mesmo domínio via proxy reverso)
         if (!origin)
             return callback(null, true);
         // Lista de origens permitidas
@@ -33,7 +33,12 @@ app.use((0, cors_1.default)({
             'http://localhost:5174',
             'http://127.0.0.1:5173',
             'http://127.0.0.1:3000',
-            process.env.FRONTEND_URL
+            process.env.FRONTEND_URL,
+            // Domínios de produção
+            'https://onxp.com.br',
+            'https://www.onxp.com.br',
+            'https://ftravelseries.com.br',
+            'https://www.ftravelseries.com.br'
         ].filter(Boolean);
         // Em desenvolvimento, permitir qualquer localhost
         if (process.env.NODE_ENV !== 'production') {
@@ -48,6 +53,7 @@ app.use((0, cors_1.default)({
         else {
             // Em produção, rejeitar origens não permitidas
             if (process.env.NODE_ENV === 'production') {
+                console.warn(`[CORS] Origin não permitida: ${origin}`);
                 callback(new Error('Not allowed by CORS'));
             }
             else {
@@ -113,9 +119,12 @@ const reportRoutes_1 = __importDefault(require("./routes/reportRoutes"));
 const branchRoutes_1 = __importDefault(require("./routes/branchRoutes"));
 const executiveNotificationEmailRoutes_1 = __importDefault(require("./routes/executiveNotificationEmailRoutes"));
 const legalDocumentRoutes_1 = __importDefault(require("./routes/legalDocumentRoutes"));
+const sizeChartRoutes_1 = __importDefault(require("./routes/sizeChartRoutes"));
+const backupRoutes_1 = __importDefault(require("./routes/backupRoutes"));
 // Routes
 // IMPORTANTE: Rotas mais específicas devem vir ANTES das rotas mais genéricas
 // Isso evita que rotas genéricas capturem requisições destinadas a rotas específicas
+// Rotas com prefixo /api (mantidas para compatibilidade)
 app.use('/api/auth', authRoutes_1.default);
 app.use('/api/categories', categoryRoutes_1.default);
 app.use('/api/products', productRoutes_1.default);
@@ -126,7 +135,8 @@ app.use('/api/utils', utilsRoutes_1.default);
 app.use('/api/hero-products', heroProductRoutes_1.default);
 app.use('/api/tickets', ticketRoutes_1.default);
 app.use('/api/legal-documents', legalDocumentRoutes_1.default);
-// Rotas admin - específicas primeiro, depois genéricas
+app.use('/api/size-charts', sizeChartRoutes_1.default);
+// Rotas admin com prefixo /api - específicas primeiro, depois genéricas
 app.use('/api/admin/order-notification-emails', orderNotificationEmailRoutes_1.default);
 app.use('/api/admin/executives', executiveRoutes_1.default);
 app.use('/api/admin/executive-notification-emails', executiveNotificationEmailRoutes_1.default);
@@ -134,7 +144,30 @@ app.use('/api/admin/branches', branchRoutes_1.default);
 app.use('/api/admin/users', userRoutes_1.default);
 app.use('/api/admin/dashboard', dashboardRoutes_1.default);
 app.use('/api/admin/reports', reportRoutes_1.default);
+app.use('/api/admin/backups', backupRoutes_1.default);
 app.use('/api/admin', smtpConfigRoutes_1.default); // Rota genérica por último
+// Rotas sem prefixo /api (para produção com Nginx fazendo proxy direto)
+app.use('/auth', authRoutes_1.default);
+app.use('/categories', categoryRoutes_1.default);
+app.use('/products', productRoutes_1.default);
+app.use('/agencies', agencyRoutes_1.default);
+app.use('/agency-points-imports', agencyPointsImportRoutes_1.default);
+app.use('/orders', orderRoutes_1.default);
+app.use('/utils', utilsRoutes_1.default);
+app.use('/hero-products', heroProductRoutes_1.default);
+app.use('/tickets', ticketRoutes_1.default);
+app.use('/legal-documents', legalDocumentRoutes_1.default);
+app.use('/size-charts', sizeChartRoutes_1.default);
+// Rotas admin sem prefixo /api - específicas primeiro, depois genéricas
+app.use('/admin/order-notification-emails', orderNotificationEmailRoutes_1.default);
+app.use('/admin/executives', executiveRoutes_1.default);
+app.use('/admin/executive-notification-emails', executiveNotificationEmailRoutes_1.default);
+app.use('/admin/branches', branchRoutes_1.default);
+app.use('/admin/users', userRoutes_1.default);
+app.use('/admin/dashboard', dashboardRoutes_1.default);
+app.use('/admin/reports', reportRoutes_1.default);
+app.use('/admin/backups', backupRoutes_1.default);
+app.use('/admin', smtpConfigRoutes_1.default); // Rota genérica por último
 // Health check - disponível em /health e /api/health
 app.get('/health', (req, res) => {
     res.status(200).json({ status: 'success', message: 'API is running' });

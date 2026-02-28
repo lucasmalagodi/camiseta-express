@@ -622,11 +622,17 @@ export const agencyController = {
                 newPassword: z.string().min(6)
             }).parse(req.body);
 
-            // Buscar agência
-            const agency = await agencyService.findById(req.agency.id);
-            if (!agency || !agency.password) {
+            // Buscar agência com senha
+            const agencyResult = await query(
+                'SELECT id, password FROM agencies WHERE id = ?',
+                [req.agency.id]
+            ) as { id: number; password: string | null }[];
+
+            if (!Array.isArray(agencyResult) || agencyResult.length === 0 || !agencyResult[0].password) {
                 return res.status(404).json({ message: 'Agency not found' });
             }
+
+            const agency = agencyResult[0];
 
             // Verificar senha atual
             const currentHash = crypto.createHash('md5').update(currentPassword).digest('hex');

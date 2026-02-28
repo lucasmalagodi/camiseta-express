@@ -161,6 +161,15 @@ export interface UpdateSizeChartDto {
     description?: string;
     imagePath?: string;
     active?: boolean;
+    measurements?: Array<{
+        id?: number;
+        size: string;
+        chest?: number;
+        waist?: number;
+        length?: number;
+        shoulder?: number;
+        sleeve?: number;
+    }>;
 }
 
 export interface ProductFilters {

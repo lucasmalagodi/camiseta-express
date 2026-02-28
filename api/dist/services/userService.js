@@ -72,6 +72,11 @@ exports.userService = {
             updates.push('role = ?');
             values.push(data.role);
         }
+        if (data.password !== undefined) {
+            // A senha será hasheada no controller antes de chegar aqui
+            updates.push('password = ?');
+            values.push(data.password);
+        }
         if (updates.length === 0) {
             return;
         }

@@ -176,6 +176,38 @@ const HeroSection = () => {
     return getImageUrl(imagePath);
   };
 
+  // Função para processar o nome do produto
+  const getProductTitle = (productName: string): [string, string] => {
+    if (!productName) return ['TRAVEL', 'COLLECTION'];
+    
+    const words = productName.trim().split(/\s+/).filter(word => word.length > 0);
+    
+    // Se não tem palavras suficientes, usar fallback
+    if (words.length === 0) return ['TRAVEL', 'COLLECTION'];
+    if (words.length === 1) return [words[0].toUpperCase(), 'COLLECTION'];
+    
+    // Pegar as duas primeiras palavras
+    let firstWord = words[0];
+    let secondWord = words[1];
+    
+    // Abreviar palavras muito grandes (mais de 10 caracteres)
+    const abbreviate = (word: string): string => {
+      if (word.length <= 10) return word;
+      // Pegar primeiras letras ou abreviação inteligente
+      if (word.length > 15) {
+        // Para palavras muito grandes, pegar primeiras 8 letras
+        return word.substring(0, 8);
+      }
+      // Para palavras médias, tentar abreviar mantendo sentido
+      return word.substring(0, 10);
+    };
+    
+    firstWord = abbreviate(firstWord);
+    secondWord = abbreviate(secondWord);
+    
+    return [firstWord.toUpperCase(), secondWord.toUpperCase()];
+  };
+
   // Se não há produtos e não está carregando, não mostrar nada
   if (!loading && products.length === 0) {
     return null;
@@ -232,19 +264,38 @@ const HeroSection = () => {
   return (
     <section className="relative h-[600px] md:h-[700px] lg:h-[800px] diagonal-bg overflow-hidden">
       <div className="relative z-0 max-w-7xl mx-auto px-6 h-full flex items-center">
-        <div className="grid lg:grid-cols-2 gap-12 items-center w-full">
+        <div className="grid lg:grid-cols-2 gap-4 md:gap-6 items-center w-full">
           {/* Left Content */}
           <div className="space-y-8">
             <div className="space-y-2">
-              <h1 className="font-display text-7xl md:text-8xl lg:text-9xl text-foreground leading-none animate-fade-in">
-                CAMI
-              </h1>
-              <h1 
-                className="font-display text-7xl md:text-8xl lg:text-9xl text-gradient leading-none animate-fade-in"
-                style={{ animationDelay: "0.1s" }}
-              >
-                SETAS
-              </h1>
+              {currentProduct ? (() => {
+                const [firstWord, secondWord] = getProductTitle(currentProduct.nome);
+                return (
+                  <>
+                    <h1 className="font-display text-7xl md:text-8xl lg:text-9xl text-foreground leading-none animate-fade-in">
+                      {firstWord}
+                    </h1>
+                    <h1 
+                      className="font-display text-7xl md:text-8xl lg:text-9xl text-gradient leading-none animate-fade-in"
+                      style={{ animationDelay: "0.1s" }}
+                    >
+                      {secondWord}
+                    </h1>
+                  </>
+                );
+              })() : (
+                <>
+                  <h1 className="font-display text-7xl md:text-8xl lg:text-9xl text-foreground leading-none animate-fade-in">
+                    TRAVEL
+                  </h1>
+                  <h1 
+                    className="font-display text-7xl md:text-8xl lg:text-9xl text-gradient leading-none animate-fade-in"
+                    style={{ animationDelay: "0.1s" }}
+                  >
+                    COLLECTION
+                  </h1>
+                </>
+              )}
             </div>
 
             {currentProduct && (

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, Fragment } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -70,6 +70,7 @@ const AdminAccess = () => {
   // Formulário de edição
   const [editingName, setEditingName] = useState("");
   const [editingRole, setEditingRole] = useState<string>("");
+  const [editingPassword, setEditingPassword] = useState("");
   
   const { sortedData, handleSort, getSortIcon } = useTableSort(users);
 
@@ -134,12 +135,14 @@ const AdminAccess = () => {
     setEditingId(user.id);
     setEditingName(user.name);
     setEditingRole(user.role);
+    setEditingPassword("");
   };
 
   const handleCancelEdit = () => {
     setEditingId(null);
     setEditingName("");
     setEditingRole("");
+    setEditingPassword("");
   };
 
   const handleSaveEdit = async (id: number) => {
@@ -148,16 +151,29 @@ const AdminAccess = () => {
       return;
     }
 
+    if (editingPassword && editingPassword.length < 6) {
+      toast.error("A senha deve ter pelo menos 6 caracteres");
+      return;
+    }
+
     setIsSubmitting(true);
     try {
-      await adminUserService.update(id, {
+      const updateData: any = {
         name: editingName,
         role: editingRole,
-      });
+      };
+      
+      // Só enviar senha se foi preenchida
+      if (editingPassword.trim()) {
+        updateData.password = editingPassword;
+      }
+      
+      await adminUserService.update(id, updateData);
       toast.success("Usuário atualizado com sucesso!");
       setEditingId(null);
       setEditingName("");
       setEditingRole("");
+      setEditingPassword("");
       await loadUsers();
     } catch (error: any) {
       toast.error(error.message || "Erro ao atualizar usuário");
@@ -460,91 +476,116 @@ const AdminAccess = () => {
                 </TableHeader>
                 <TableBody>
                   {sortedData.map((user) => (
-                    <TableRow key={user.id}>
-                      <TableCell>
-                        {editingId === user.id ? (
-                          <Input
-                            type="text"
-                            value={editingName}
-                            onChange={(e) => setEditingName(e.target.value)}
-                            className="w-full"
-                          />
-                        ) : (
-                          <span className="font-medium">{user.name}</span>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        <span className="text-muted-foreground">{user.email}</span>
-                      </TableCell>
-                      <TableCell>
-                        {editingId === user.id ? (
-                          <Select value={editingRole} onValueChange={setEditingRole}>
-                            <SelectTrigger className="w-full">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="admin">Administrador</SelectItem>
-                              <SelectItem value="agency">Agência</SelectItem>
-                              <SelectItem value="user">Usuário</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        ) : (
-                          <Badge variant={getRoleBadgeVariant(user.role)}>
-                            {getRoleLabel(user.role)}
-                          </Badge>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant={user.active ? "default" : "secondary"}>
-                          {user.active ? "Ativo" : "Bloqueado"}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        {new Date(user.createdAt).toLocaleDateString("pt-BR")}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <div className="flex items-center justify-end gap-2">
+                    <Fragment key={user.id}>
+                      <TableRow>
+                        <TableCell>
                           {editingId === user.id ? (
-                            <>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={() => handleSaveEdit(user.id)}
-                                disabled={isSubmitting}
-                              >
-                                <Check className="w-4 h-4" />
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={handleCancelEdit}
-                              >
-                                <X className="w-4 h-4" />
-                              </Button>
-                            </>
+                            <Input
+                              type="text"
+                              value={editingName}
+                              onChange={(e) => setEditingName(e.target.value)}
+                              className="w-full"
+                            />
                           ) : (
-                            <>
-                              <div className="flex items-center gap-2">
-                                <Switch
-                                  checked={user.active}
-                                  onCheckedChange={() =>
-                                    handleToggleActive(user.id, user.active)
-                                  }
-                                  disabled={admin?.id === user.id}
-                                />
-                              </div>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={() => handleStartEdit(user)}
-                              >
-                                <Edit2 className="w-4 h-4" />
-                              </Button>
-                            </>
+                            <span className="font-medium">{user.name}</span>
                           )}
-                        </div>
-                      </TableCell>
-                    </TableRow>
+                        </TableCell>
+                        <TableCell>
+                          <span className="text-muted-foreground">{user.email}</span>
+                        </TableCell>
+                        <TableCell>
+                          {editingId === user.id ? (
+                            <Select value={editingRole} onValueChange={setEditingRole}>
+                              <SelectTrigger className="w-full">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="admin">Administrador</SelectItem>
+                                <SelectItem value="agency">Agência</SelectItem>
+                                <SelectItem value="user">Usuário</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          ) : (
+                            <Badge variant={getRoleBadgeVariant(user.role)}>
+                              {getRoleLabel(user.role)}
+                            </Badge>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant={user.active ? "default" : "secondary"}>
+                            {user.active ? "Ativo" : "Bloqueado"}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          {new Date(user.createdAt).toLocaleDateString("pt-BR")}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex items-center justify-end gap-2">
+                            {editingId === user.id ? (
+                              <>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  onClick={() => handleSaveEdit(user.id)}
+                                  disabled={isSubmitting}
+                                >
+                                  <Check className="w-4 h-4" />
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  onClick={handleCancelEdit}
+                                >
+                                  <X className="w-4 h-4" />
+                                </Button>
+                              </>
+                            ) : (
+                              <>
+                                <div className="flex items-center gap-2">
+                                  <Switch
+                                    checked={user.active}
+                                    onCheckedChange={() =>
+                                      handleToggleActive(user.id, user.active)
+                                    }
+                                    disabled={admin?.id === user.id}
+                                  />
+                                </div>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  onClick={() => handleStartEdit(user)}
+                                >
+                                  <Edit2 className="w-4 h-4" />
+                                </Button>
+                              </>
+                            )}
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                      {editingId === user.id && (
+                        <TableRow>
+                          <TableCell colSpan={7} className="bg-muted/30">
+                            <div className="flex items-center gap-4 py-2">
+                              <Label htmlFor={`password-${user.id}`} className="whitespace-nowrap">
+                                Nova Senha (opcional):
+                              </Label>
+                              <Input
+                                id={`password-${user.id}`}
+                                type="password"
+                                placeholder="Deixe em branco para manter a senha atual"
+                                value={editingPassword}
+                                onChange={(e) => setEditingPassword(e.target.value)}
+                                className="max-w-xs"
+                                minLength={6}
+                              />
+                              <p className="text-xs text-muted-foreground">
+                                Mínimo 6 caracteres. Deixe em branco para não alterar.
+                              </p>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      )}
+                    </Fragment>
                   ))}
                 </TableBody>
               </Table>

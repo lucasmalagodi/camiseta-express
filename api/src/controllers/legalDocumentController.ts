@@ -50,8 +50,8 @@ export const legalDocumentController = {
 
     async findByType(req: Request, res: Response) {
         try {
-            const { type } = req.params;
-            if (!['TERMS', 'PRIVACY', 'CAMPAIGN_RULES'].includes(type)) {
+            const type = Array.isArray(req.params.type) ? req.params.type[0] : req.params.type;
+            if (!type || !['TERMS', 'PRIVACY', 'CAMPAIGN_RULES'].includes(type)) {
                 return res.status(400).json({ message: 'Invalid document type' });
             }
             const documents = await legalDocumentService.findByType(type as LegalDocumentType);
@@ -118,8 +118,8 @@ export const legalDocumentController = {
 
     async getActiveByType(req: Request, res: Response) {
         try {
-            const { type } = req.params;
-            if (!['TERMS', 'PRIVACY', 'CAMPAIGN_RULES'].includes(type)) {
+            const type = Array.isArray(req.params.type) ? req.params.type[0] : req.params.type;
+            if (!type || !['TERMS', 'PRIVACY', 'CAMPAIGN_RULES'].includes(type)) {
                 return res.status(400).json({ message: 'Invalid document type' });
             }
             const document = await legalDocumentService.findActiveByType(type as LegalDocumentType);
