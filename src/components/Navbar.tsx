@@ -37,7 +37,10 @@ const Navbar = () => {
   ];
 
   return (
-    <nav className="sticky top-0 left-0 right-0 z-[100] px-6 py-4 bg-background/95 backdrop-blur-sm border-b border-border/50 shadow-sm">
+    <nav 
+      className="sticky top-0 left-0 right-0 z-[100] px-6 py-4 backdrop-blur-sm border-b border-border/50 shadow-sm"
+      style={{ backgroundColor: '#0648ad' }}
+    >
       <div className="max-w-7xl mx-auto flex items-center justify-between">
         {/* Logo */}
         <Link
@@ -76,7 +79,7 @@ const Navbar = () => {
                         {agency.name}
                       </span>
                       <span className="text-base font-bold text-primary">
-                        {formatPoints(agency.points).toLocaleString("pt-BR")} pontos
+                        {formatPoints(agency.points)} pontos
                       </span>
                     </button>
                   </DropdownMenuTrigger>
@@ -85,7 +88,7 @@ const Navbar = () => {
                       <div className="flex flex-col">
                         <span className="font-semibold">{agency.name}</span>
                         <span className="text-base font-bold text-primary">
-                          {formatPoints(agency.points).toLocaleString("pt-BR")} pontos
+                          {formatPoints(agency.points)} pontos
                         </span>
                       </div>
                     </DropdownMenuLabel>

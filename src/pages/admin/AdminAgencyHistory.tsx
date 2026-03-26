@@ -226,7 +226,7 @@ const AdminAgencyHistory = () => {
                       }`}
                     >
                       {entry.points >= 0 ? "+" : ""}
-                      {formatPoints(entry.points).toLocaleString("pt-BR")} pts
+                      {formatPoints(entry.points)} pts
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground">
                       {entry.description || "-"}

@@ -9,6 +9,7 @@ const bcryptjs_1 = __importDefault(require("bcryptjs"));
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
 const crypto_1 = __importDefault(require("crypto"));
 const db_1 = require("../config/db");
+const authMiddleware_1 = require("../middlewares/authMiddleware");
 // Schema de validação com Zod
 const registerSchema = zod_1.z.object({
     name: zod_1.z.string().min(2),
@@ -35,11 +36,10 @@ const register = async (req, res) => {
         const result = await (0, db_1.query)('INSERT INTO users (name, email, password, role) VALUES (?, ?, ?, ?)', [name, email, hashedPassword, role]);
         const userId = result.insertId;
         // Gerar token JWT
-        const jwtSecret = process.env.JWT_SECRET || 'secret';
         const jwtExpire = process.env.JWT_EXPIRE || '30d';
         // @ts-ignore - expiresIn aceita string mas o tipo está muito restritivo
         const signOptions = { expiresIn: jwtExpire };
-        const token = jsonwebtoken_1.default.sign({ id: userId, email, role }, jwtSecret, signOptions);
+        const token = jsonwebtoken_1.default.sign({ id: userId, email, role }, (0, authMiddleware_1.getJwtSecret)(), signOptions);
         res.status(201).json({
             _id: userId,
             name,
@@ -95,11 +95,10 @@ const login = async (req, res) => {
             return res.status(401).json({ message: 'Credenciais inválidas' });
         }
         // Gerar token JWT
-        const jwtSecret = process.env.JWT_SECRET || 'secret';
         const jwtExpire = process.env.JWT_EXPIRE || '30d';
         // @ts-ignore - expiresIn aceita string mas o tipo está muito restritivo
         const signOptions = { expiresIn: jwtExpire };
-        const token = jsonwebtoken_1.default.sign({ id: user.id, email: user.email, role: user.role }, jwtSecret, signOptions);
+        const token = jsonwebtoken_1.default.sign({ id: user.id, email: user.email, role: user.role }, (0, authMiddleware_1.getJwtSecret)(), signOptions);
         console.log('Login successful for user:', user.email, 'role:', user.role);
         res.json({
             _id: user.id,

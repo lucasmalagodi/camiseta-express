@@ -12,7 +12,9 @@ exports.backupController = {
      */
     async listBackups(req, res) {
         try {
+            console.log('[BackupController] listBackups chamado');
             const backups = await backupService_1.backupService.listBackups();
+            console.log(`[BackupController] ${backups.length} backup(s) encontrado(s)`);
             res.json({
                 success: true,
                 data: backups
@@ -60,7 +62,8 @@ exports.backupController = {
      */
     async downloadBackup(req, res) {
         try {
-            const backupId = parseInt(req.params.id);
+            const idParam = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+            const backupId = parseInt(idParam);
             if (isNaN(backupId)) {
                 return res.status(400).json({
                     success: false,
@@ -119,7 +122,8 @@ exports.backupController = {
      */
     async deleteBackup(req, res) {
         try {
-            const backupId = parseInt(req.params.id);
+            const idParam = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+            const backupId = parseInt(idParam);
             if (isNaN(backupId)) {
                 return res.status(400).json({
                     success: false,
@@ -146,7 +150,8 @@ exports.backupController = {
      */
     async getBackup(req, res) {
         try {
-            const backupId = parseInt(req.params.id);
+            const idParam = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+            const backupId = parseInt(idParam);
             if (isNaN(backupId)) {
                 return res.status(400).json({
                     success: false,
@@ -179,7 +184,8 @@ exports.backupController = {
      */
     async validateBackup(req, res) {
         try {
-            const backupId = parseInt(req.params.id);
+            const idParam = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+            const backupId = parseInt(idParam);
             if (isNaN(backupId)) {
                 return res.status(400).json({
                     success: false,

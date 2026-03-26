@@ -35,25 +35,23 @@ export const calculateLotDistribution = (
   for (let i = startIndex; i < sortedPrices.length && remainingQuantity > 0; i++) {
     const price = sortedPrices[i];
     const quantidadeCompra = Number(price.quantidadeCompra) || 0;
-    
+    const lotUnitsPurchased = purchasesByLotMap.get(price.id) || 0;
+
     let unitsForThisLot = 0;
-    
+
     if (quantidadeCompra === 0) {
-      // Se quantidade_compra = 0: permite apenas 1 unidade por agência (qualquer lote)
-      if (totalUnitsPurchased === 0 && remainingQuantity > 0) {
+      // quantidade_compra = 0: permite 1 unidade por agência por lote (segundo item usa segundo lote, etc.)
+      if (lotUnitsPurchased === 0 && remainingQuantity > 0) {
         unitsForThisLot = 1;
       }
-      // Se já comprou, não pode mais comprar neste lote
     } else {
-      // Se quantidade_compra > 0: permite até quantidade_compra unidades neste lote
-      const lotUnitsPurchased = purchasesByLotMap.get(price.id) || 0;
+      // quantidade_compra > 0: permite até quantidade_compra unidades neste lote
       const availableInLot = quantidadeCompra - lotUnitsPurchased;
-      
       if (availableInLot > 0) {
         unitsForThisLot = Math.min(remainingQuantity, availableInLot);
       }
     }
-    
+
     if (unitsForThisLot > 0) {
       distribution.push({
         priceId: price.id,
@@ -62,7 +60,7 @@ export const calculateLotDistribution = (
         quantity: unitsForThisLot,
         quantidadeCompra: quantidadeCompra
       });
-      
+
       totalPrice += Number(price.value) * unitsForThisLot;
       remainingQuantity -= unitsForThisLot;
       totalUnitsPurchased += unitsForThisLot;
@@ -111,8 +109,8 @@ export interface CartItem {
 interface CartContextType {
   items: CartItem[];
   addItem: (item: Omit<CartItem, "quantity">) => void;
-  removeItem: (id: number) => void;
-  updateQuantity: (id: number, quantity: number) => void;
+  removeItem: (id: number, variantId?: number) => void;
+  updateQuantity: (id: number, quantity: number, variantId?: number) => void;
   clearCart: () => void;
   totalItems: number;
   totalPrice: number;
@@ -138,120 +136,172 @@ export const CartProvider = ({ children }: { children: ReactNode }) => {
 
   const addItem = (item: Omit<CartItem, "quantity">) => {
     setItems((prevItems) => {
+      // Itens do mesmo produto (mesmo id) já no carrinho — qualquer modelo/tamanho conta para o limite
+      const otherLinesSameProduct = prevItems.filter(
+        (i) => i.id === item.id && (item.variantId != null ? i.variantId !== item.variantId : i.variantId != null)
+      );
+      const totalOtherInCart = otherLinesSameProduct.reduce((s, i) => s + i.quantity, 0);
+      const otherLotUnits = new Map<number, number>();
+      otherLinesSameProduct.forEach((i) => {
+        i.lotDistribution?.forEach((lot) => {
+          otherLotUnits.set(lot.priceId, (otherLotUnits.get(lot.priceId) || 0) + lot.quantity);
+        });
+      });
+      // Base em item.prices para ter todos os lotes; senão só lotes da API entram e o novo item (outra variante) pega o 1º lote de novo
+      const mergedPurchasesByLot = (item.prices || []).length
+        ? (item.prices || []).map((p) => ({
+            priceId: p.id,
+            batch: p.batch,
+            units:
+              (item.purchasesByLot?.find((l) => l.priceId === p.id)?.units ?? 0) +
+              (otherLotUnits.get(p.id) || 0),
+          }))
+        : (item.purchasesByLot || []).map((p) => ({
+            ...p,
+            units: p.units + (otherLotUnits.get(p.priceId) || 0),
+          }));
+      const effectiveAgencyCount = (item.agencyPurchaseCount || 0) + totalOtherInCart;
+
       // Se tem variantId, buscar item com mesmo id E variantId
-      // Se não tem variantId, buscar apenas por id
-      const existingItem = item.variantId 
+      const existingItem = item.variantId
         ? prevItems.find((i) => i.id === item.id && i.variantId === item.variantId)
         : prevItems.find((i) => i.id === item.id && !i.variantId);
-      
+
       if (existingItem) {
-        // Se já existe, incrementar quantidade e recalcular distribuição
         const newQuantity = existingItem.quantity + 1;
-        
-        // Se tem informações de lotes, recalcular distribuição
-        // Considerar apenas compras confirmadas anteriores (não unidades do carrinho)
+
         if (item.prices && item.prices.length > 0) {
           const { distribution, totalPrice, canAdd } = calculateLotDistribution(
             newQuantity,
             item.prices,
-            item.agencyPurchaseCount || 0,
-            item.purchasesByLot || [],
+            effectiveAgencyCount,
+            mergedPurchasesByLot,
             item.loteDisponivelId
           );
-          
+
           if (!canAdd) {
-            // Não pode adicionar mais unidades
             return prevItems;
           }
-          
+
+          const isSameLine = (i: CartItem) =>
+            i.id === item.id && (item.variantId != null ? i.variantId === item.variantId : i.variantId == null);
           return prevItems.map((i) =>
-            i.id === item.id ? {
-              ...i,
-              quantity: newQuantity,
-              lotDistribution: distribution,
-              price: totalPrice / newQuantity, // Preço médio
-              prices: item.prices, // Manter preços atualizados
-              agencyPurchaseCount: item.agencyPurchaseCount,
-              purchasesByLot: item.purchasesByLot,
-              loteDisponivelId: item.loteDisponivelId
-            } : i
+            isSameLine(i)
+              ? {
+                  ...i,
+                  quantity: newQuantity,
+                  lotDistribution: distribution,
+                  price: totalPrice / newQuantity,
+                  prices: item.prices,
+                  agencyPurchaseCount: item.agencyPurchaseCount,
+                  purchasesByLot: item.purchasesByLot,
+                  loteDisponivelId: item.loteDisponivelId,
+                }
+              : i
           );
         }
-        
-        // Se não tem lotes, apenas incrementar
-        return prevItems.map((i) =>
-          i.id === item.id ? { ...i, quantity: newQuantity } : i
-        );
+
+        const isSameLine = (i: CartItem) =>
+          i.id === item.id && (item.variantId != null ? i.variantId === item.variantId : i.variantId == null);
+        return prevItems.map((i) => (isSameLine(i) ? { ...i, quantity: newQuantity } : i));
       }
-      
-      // Novo item - calcular distribuição se tiver lotes
+
+      // Novo item — considerar mesmo produto (outras variantes) já no carrinho para o limite
       let newItem: CartItem = { ...item, quantity: 1 };
-      
+
       if (item.prices && item.prices.length > 0) {
         const { distribution, totalPrice, canAdd } = calculateLotDistribution(
           1,
           item.prices,
-          item.agencyPurchaseCount || 0,
-          item.purchasesByLot || [],
+          effectiveAgencyCount,
+          mergedPurchasesByLot,
           item.loteDisponivelId
         );
-        
+
         if (!canAdd) {
-          // Não pode adicionar
           return prevItems;
         }
-        
+
         newItem = {
           ...item,
           quantity: 1,
           lotDistribution: distribution,
-          price: totalPrice
+          price: totalPrice,
         };
       }
-      
+
       return [...prevItems, newItem];
     });
   };
 
-  const removeItem = (id: number) => {
-    setItems((prevItems) => prevItems.filter((item) => item.id !== id));
+  const removeItem = (id: number, variantId?: number) => {
+    setItems((prevItems) =>
+      prevItems.filter((item) => {
+        if (item.id !== id) return true;
+        if (variantId !== undefined) return item.variantId !== variantId;
+        return item.variantId === undefined;
+      })
+    );
   };
 
-  const updateQuantity = (id: number, quantity: number) => {
+  const updateQuantity = (id: number, quantity: number, variantId?: number) => {
     if (quantity <= 0) {
-      removeItem(id);
+      removeItem(id, variantId);
       return;
     }
-    
+
     setItems((prevItems) =>
       prevItems.map((item) => {
-        if (item.id !== id) return item;
-        
-        // Se tem informações de lotes, recalcular distribuição
+        const isTarget =
+          item.id === id && (variantId === undefined ? item.variantId === undefined : item.variantId === variantId);
+        if (!isTarget) return item;
+
         if (item.prices && item.prices.length > 0) {
-          // Considerar apenas as compras anteriores (não incluir unidades do carrinho atual)
+          const otherLinesSameProduct = prevItems.filter(
+            (i) => i.id === id && (variantId !== undefined ? i.variantId !== variantId : i.variantId != null)
+          );
+          const totalOtherInCart = otherLinesSameProduct.reduce((s, i) => s + i.quantity, 0);
+          const otherLotUnits = new Map<number, number>();
+          otherLinesSameProduct.forEach((i) => {
+            i.lotDistribution?.forEach((lot) => {
+              otherLotUnits.set(lot.priceId, (otherLotUnits.get(lot.priceId) || 0) + lot.quantity);
+            });
+          });
+          const mergedPurchasesByLot =
+            (item.prices || []).length > 0
+              ? (item.prices || []).map((p) => ({
+                  priceId: p.id,
+                  batch: p.batch,
+                  units:
+                    (item.purchasesByLot?.find((l) => l.priceId === p.id)?.units ?? 0) +
+                    (otherLotUnits.get(p.id) || 0),
+                }))
+              : (item.purchasesByLot || []).map((p) => ({
+                  ...p,
+                  units: p.units + (otherLotUnits.get(p.priceId) || 0),
+                }));
+          const effectiveAgencyCount = (item.agencyPurchaseCount || 0) + totalOtherInCart;
+
           const { distribution, totalPrice, canAdd } = calculateLotDistribution(
             quantity,
             item.prices,
-            item.agencyPurchaseCount || 0,
-            item.purchasesByLot || [],
+            effectiveAgencyCount,
+            mergedPurchasesByLot,
             item.loteDisponivelId
           );
-          
+
           if (!canAdd) {
-            // Não pode atualizar para essa quantidade
             return item;
           }
-          
+
           return {
             ...item,
             quantity,
             lotDistribution: distribution,
-            price: totalPrice / quantity // Preço médio
+            price: totalPrice / quantity,
           };
         }
-        
-        // Se não tem lotes, apenas atualizar quantidade
+
         return { ...item, quantity };
       })
     );

@@ -11,6 +11,8 @@ interface ImageCropDialogProps {
   onCropComplete: (croppedImageBlob: Blob) => void;
   aspectRatio?: number;
   title?: string;
+  outputWidth?: number;
+  outputHeight?: number;
 }
 
 interface Area {
@@ -26,7 +28,9 @@ const ImageCropDialog = ({
   imageSrc,
   onCropComplete,
   aspectRatio = 16 / 9,
-  title = "Cortar Imagem"
+  title = "Cortar Imagem",
+  outputWidth,
+  outputHeight
 }: ImageCropDialogProps) => {
   const [crop, setCrop] = useState({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(1);
@@ -39,8 +43,29 @@ const ImageCropDialog = ({
   const [imageSize, setImageSize] = useState({ width: 0, height: 0 });
   const [cropSize, setCropSize] = useState({ width: 0, height: 0 });
 
+  // Resetar estado quando o dialog fecha
+  useEffect(() => {
+    if (!open) {
+      setImageLoaded(false);
+      setImageSize({ width: 0, height: 0 });
+      setCropSize({ width: 0, height: 0 });
+      setCrop({ x: 0, y: 0 });
+      setZoom(1);
+      setIsDragging(false);
+      setIsProcessing(false);
+    }
+  }, [open]);
+
   useEffect(() => {
     if (open && imageSrc) {
+      // Resetar estados antes de carregar nova imagem
+      setImageLoaded(false);
+      setImageSize({ width: 0, height: 0 });
+      setCropSize({ width: 0, height: 0 });
+      setCrop({ x: 0, y: 0 });
+      setZoom(1);
+      setIsDragging(false);
+      
       const img = new Image();
       img.onload = () => {
         setImageSize({ width: img.width, height: img.height });
@@ -51,20 +76,60 @@ const ImageCropDialog = ({
           const containerWidth = containerRef.current.clientWidth;
           const containerHeight = containerRef.current.clientHeight;
           
-          let cropWidth = containerWidth * 0.8;
-          let cropHeight = cropWidth / aspectRatio;
+          // Verificar se a imagem já está no tamanho desejado
+          const isExactSize = outputWidth && outputHeight && 
+            Math.abs(img.width - outputWidth) < 5 && Math.abs(img.height - outputHeight) < 5;
           
-          if (cropHeight > containerHeight * 0.8) {
-            cropHeight = containerHeight * 0.8;
-            cropWidth = cropHeight * aspectRatio;
+          let cropWidth: number;
+          let cropHeight: number;
+          let initialZoom = 1;
+          
+          if (isExactSize && outputWidth && outputHeight) {
+            // Se a imagem já está no tamanho correto, calcular zoom e crop para que a área de corte cubra toda a imagem
+            // Primeiro, calcular o zoom necessário para que a imagem se encaixe no container
+            const scaleToFitX = (containerWidth * 0.95) / img.width;
+            const scaleToFitY = (containerHeight * 0.95) / img.height;
+            initialZoom = Math.min(scaleToFitX, scaleToFitY);
+            
+            // Com esse zoom, a imagem renderizada terá:
+            const scaledImgWidth = img.width * initialZoom;
+            const scaledImgHeight = img.height * initialZoom;
+            
+            // A área de corte deve ter o tamanho da imagem renderizada (ou o máximo que cabe no container)
+            cropWidth = Math.min(scaledImgWidth, containerWidth * 0.95);
+            cropHeight = Math.min(scaledImgHeight, containerHeight * 0.95);
+            
+            // Garantir que mantém o aspect ratio
+            if (cropWidth / cropHeight !== aspectRatio) {
+              if (cropWidth / cropHeight > aspectRatio) {
+                cropWidth = cropHeight * aspectRatio;
+              } else {
+                cropHeight = cropWidth / aspectRatio;
+              }
+            }
+          } else {
+            // Comportamento padrão: calcular tamanho do crop baseado no container
+            cropWidth = containerWidth * 0.8;
+            cropHeight = cropWidth / aspectRatio;
+            
+            if (cropHeight > containerHeight * 0.8) {
+              cropHeight = containerHeight * 0.8;
+              cropWidth = cropHeight * aspectRatio;
+            }
           }
           
           setCropSize({ width: cropWidth, height: cropHeight });
+          setZoom(initialZoom);
+          setCrop({ x: 0, y: 0 });
         }
+      };
+      img.onerror = () => {
+        console.error("Erro ao carregar imagem");
+        setImageLoaded(false);
       };
       img.src = imageSrc;
     }
-  }, [open, imageSrc, aspectRatio]);
+  }, [open, imageSrc, aspectRatio, outputWidth, outputHeight]);
 
   const handleMouseDown = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -78,6 +143,50 @@ const ImageCropDialog = ({
     }
   };
 
+  // Função helper para calcular os limites válidos do crop baseado no zoom atual
+  const getCropLimits = useCallback(() => {
+    if (!containerRef.current || !imageLoaded || cropSize.width === 0 || cropSize.height === 0) {
+      return { minX: 0, maxX: 0, minY: 0, maxY: 0 };
+    }
+    
+    const scaledImageWidth = imageSize.width * zoom;
+    const scaledImageHeight = imageSize.height * zoom;
+    
+    // Limites: a imagem não pode sair completamente da área de crop
+    // Quando a imagem escalada é menor que a área de crop, os limites devem permitir centralização
+    if (scaledImageWidth <= cropSize.width) {
+      // Imagem menor ou igual à área de crop - pode centralizar (limites iguais)
+      return { minX: 0, maxX: 0, minY: 0, maxY: 0 };
+    } else {
+      // Imagem maior que a área de crop - calcular limites normais
+      const minX = -(scaledImageWidth / 2 - cropSize.width / 2);
+      const maxX = scaledImageWidth / 2 - cropSize.width / 2;
+      const minY = -(scaledImageHeight / 2 - cropSize.height / 2);
+      const maxY = scaledImageHeight / 2 - cropSize.height / 2;
+      return { minX, maxX, minY, maxY };
+    }
+  }, [imageLoaded, imageSize, zoom, cropSize]);
+
+  // Ajustar posição do crop quando o zoom muda para manter dentro dos limites
+  useEffect(() => {
+    if (imageLoaded && containerRef.current && !isDragging && cropSize.width > 0 && cropSize.height > 0) {
+      const limits = getCropLimits();
+      const scaledImageWidth = imageSize.width * zoom;
+      const scaledImageHeight = imageSize.height * zoom;
+      
+      // Se a imagem escalada é menor ou igual à área de crop, centralizar (x: 0, y: 0)
+      if (scaledImageWidth <= cropSize.width && scaledImageHeight <= cropSize.height) {
+        setCrop({ x: 0, y: 0 });
+      } else {
+        // Caso contrário, ajustar para os limites válidos
+        setCrop(prevCrop => ({
+          x: Math.max(limits.minX, Math.min(limits.maxX, prevCrop.x)),
+          y: Math.max(limits.minY, Math.min(limits.maxY, prevCrop.y))
+        }));
+      }
+    }
+  }, [zoom, imageLoaded, getCropLimits, isDragging, cropSize, imageSize]);
+
   const handleMouseMove = (e: React.MouseEvent) => {
     if (isDragging && containerRef.current && imageRef.current) {
       e.preventDefault();
@@ -88,22 +197,12 @@ const ImageCropDialog = ({
       const newX = e.clientX - rect.left - dragStart.x;
       const newY = e.clientY - rect.top - dragStart.y;
       
-      // Calcular limites baseado no tamanho da imagem escalada
-      const scaledImageWidth = imageSize.width * zoom;
-      const scaledImageHeight = imageSize.height * zoom;
-      
-      const containerWidth = container.clientWidth;
-      const containerHeight = container.clientHeight;
-      
-      // Limites: a imagem não pode sair completamente da área de crop
-      const minX = -(scaledImageWidth / 2 - cropSize.width / 2);
-      const maxX = scaledImageWidth / 2 - cropSize.width / 2;
-      const minY = -(scaledImageHeight / 2 - cropSize.height / 2);
-      const maxY = scaledImageHeight / 2 - cropSize.height / 2;
+      // Usar a função helper para calcular limites
+      const limits = getCropLimits();
       
       setCrop({ 
-        x: Math.max(minX, Math.min(maxX, newX)), 
-        y: Math.max(minY, Math.min(maxY, newY)) 
+        x: Math.max(limits.minX, Math.min(limits.maxX, newX)), 
+        y: Math.max(limits.minY, Math.min(limits.maxY, newY)) 
       });
     }
   };
@@ -172,8 +271,17 @@ const ImageCropDialog = ({
       throw new Error("No 2d context");
     }
 
-    canvas.width = pixelCrop.width;
-    canvas.height = pixelCrop.height;
+    // Se outputWidth e outputHeight forem fornecidos, redimensionar para esses valores
+    // Caso contrário, usar as dimensões do crop
+    const finalWidth = outputWidth || pixelCrop.width;
+    const finalHeight = outputHeight || pixelCrop.height;
+
+    canvas.width = finalWidth;
+    canvas.height = finalHeight;
+
+    // Usar imageSmoothingEnabled para melhor qualidade ao redimensionar
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
 
     ctx.drawImage(
       image,
@@ -183,8 +291,8 @@ const ImageCropDialog = ({
       pixelCrop.height,
       0,
       0,
-      pixelCrop.width,
-      pixelCrop.height
+      finalWidth,
+      finalHeight
     );
 
     return new Promise((resolve, reject) => {

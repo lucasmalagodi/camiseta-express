@@ -2,7 +2,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider } from "./contexts/AuthContext";
 import { AdminAuthProvider } from "./contexts/AdminAuthContext";
 import { CartProvider } from "./contexts/CartContext";
@@ -32,6 +32,9 @@ import AdminReportView from "./pages/admin/AdminReportView";
 import AdminLegalDocuments from "./pages/admin/AdminLegalDocuments";
 import AdminUsers from "./pages/admin/AdminUsers";
 import AdminBackups from "./pages/admin/AdminBackups";
+import AdminShippingAwaiting from "./pages/admin/AdminShippingAwaiting";
+import AdminShipmentDetail from "./pages/admin/AdminShipmentDetail";
+import AdminShipmentPreparation from "./pages/admin/AdminShipmentPreparation";
 import CheckoutConfirmation from "./pages/CheckoutConfirmation";
 import CheckoutInstructions from "./pages/CheckoutInstructions";
 import Cart from "./pages/Cart";
@@ -97,6 +100,21 @@ const App = () => (
                   <Route path="agencies/:id/history" element={<AdminAgencyHistory />} />
                   <Route path="pedidos" element={<AdminOrders />} />
                   <Route path="pedidos/:id" element={<AdminOrderDetails />} />
+                  <Route path="envios/preparacao" element={<AdminShipmentPreparation />} />
+                  <Route
+                    path="envios/remessas/:id/preparacao"
+                    element={<Navigate to="/admin/envios/preparacao" replace />}
+                  />
+                  <Route path="envios/remessas/:id" element={<AdminShipmentDetail />} />
+                  <Route
+                    path="envios/remessas"
+                    element={<Navigate to="/admin/envios?tab=remessas" replace />}
+                  />
+                  <Route
+                    path="envios/aguardando"
+                    element={<Navigate to="/admin/envios" replace />}
+                  />
+                  <Route path="envios" element={<AdminShippingAwaiting />} />
                   <Route path="destaques" element={<AdminHeroProducts />} />
                   <Route path="configuracoes" element={<AdminSmtpConfig />} />
                   <Route path="tickets" element={<AdminTickets />} />

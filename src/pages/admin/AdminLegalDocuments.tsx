@@ -357,7 +357,7 @@ const AdminLegalDocuments = () => {
                 <SelectTrigger id="type">
                   <SelectValue placeholder="Selecione o tipo" />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent className="z-[200]">
                   <SelectItem value="TERMS">Termos de Serviço</SelectItem>
                   <SelectItem value="PRIVACY">Política de Privacidade</SelectItem>
                   <SelectItem value="CAMPAIGN_RULES">Regras da Campanha</SelectItem>

@@ -4,16 +4,7 @@ const express_1 = require("express");
 const reportController_1 = require("../controllers/reportController");
 const authMiddleware_1 = require("../middlewares/authMiddleware");
 const router = (0, express_1.Router)();
-// Middleware para verificar se é admin
-const requireAdmin = (req, res, next) => {
-    if (!req.user || req.user.role !== 'admin') {
-        return res.status(403).json({ message: 'Acesso negado. Apenas administradores.' });
-    }
-    next();
-};
-// Todas as rotas requerem autenticação e admin
-router.use(authMiddleware_1.protect);
-router.use(requireAdmin);
+router.use(authMiddleware_1.protectAdmin);
 // Rotas de relatórios
 // IMPORTANTE: Rotas específicas devem vir ANTES de rotas com parâmetros
 router.post('/reports', reportController_1.reportController.create);

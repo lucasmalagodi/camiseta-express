@@ -97,11 +97,11 @@ const ProductCard = ({ id, image, name, price, originalPrice, delay = 0, quantit
         )}
 
         {/* Discount Badge */}
-        {originalPrice && Number(originalPrice) > Number(price) && (
+        {/* {originalPrice && Number(originalPrice) > Number(price) && (
           <div className="absolute top-4 left-4 px-3 py-1 rounded-full hero-gradient text-xs font-semibold text-primary-foreground">
             -{Math.round(((Number(originalPrice) - Number(price)) / Number(originalPrice)) * 100)}%
           </div>
-        )}
+        )} */}
       </div>
 
       {/* Product Info */}

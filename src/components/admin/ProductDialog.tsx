@@ -964,7 +964,7 @@ const ProductDialog = ({
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto bg-background z-[100]" onInteractOutside={(e) => {
+      <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto bg-background" onInteractOutside={(e) => {
         // Permitir que o SelectContent funcione corretamente
         const target = e.target as HTMLElement;
         if (target.closest('[role="listbox"]')) {
@@ -1066,7 +1066,7 @@ const ProductDialog = ({
                     >
                       <SelectValue placeholder="Selecione uma categoria" />
                     </SelectTrigger>
-                    <SelectContent className="z-[9999]" position="popper">
+                    <SelectContent className="z-[200]" position="popper">
                       {categories.length > 0 ? (
                         categories.map((category) => (
                           <SelectItem key={category.id} value={category.id.toString()}>
@@ -1431,7 +1431,7 @@ const ProductDialog = ({
                         <SelectTrigger>
                           <SelectValue placeholder="Selecione o modelo" />
                         </SelectTrigger>
-                        <SelectContent className="z-[101]" position="popper">
+                        <SelectContent className="z-[200]" position="popper">
                           <SelectItem value="MASCULINO">Masculino</SelectItem>
                           <SelectItem value="FEMININO">Feminino</SelectItem>
                           <SelectItem value="UNISEX">Unisex</SelectItem>

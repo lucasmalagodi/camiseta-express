@@ -4,6 +4,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import { query } from '../config/db';
+import { getJwtSecret } from '../middlewares/authMiddleware';
 
 // Schema de validação com Zod
 const registerSchema = z.object({
@@ -55,13 +56,12 @@ export const register = async (req: Request, res: Response) => {
         const userId = result.insertId;
 
         // Gerar token JWT
-        const jwtSecret: string = process.env.JWT_SECRET || 'secret';
         const jwtExpire: string = process.env.JWT_EXPIRE || '30d';
         // @ts-ignore - expiresIn aceita string mas o tipo está muito restritivo
         const signOptions: jwt.SignOptions = { expiresIn: jwtExpire };
         const token = jwt.sign(
             { id: userId, email, role },
-            jwtSecret,
+            getJwtSecret(),
             signOptions
         );
 
@@ -129,13 +129,12 @@ export const login = async (req: Request, res: Response) => {
         }
 
         // Gerar token JWT
-        const jwtSecret: string = process.env.JWT_SECRET || 'secret';
         const jwtExpire: string = process.env.JWT_EXPIRE || '30d';
         // @ts-ignore - expiresIn aceita string mas o tipo está muito restritivo
         const signOptions: jwt.SignOptions = { expiresIn: jwtExpire };
         const token = jwt.sign(
             { id: user.id, email: user.email, role: user.role },
-            jwtSecret,
+            getJwtSecret(),
             signOptions
         );
 

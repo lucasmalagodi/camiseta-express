@@ -67,18 +67,13 @@ app.use(cors({
 }));
 app.use(hpp());
 
-// Rate Limiting adaptativo - admins têm limites muito mais altos
-// Aplicar rate limiting adaptativo para todas as rotas da API
-app.use('/api', adaptiveRateLimit);
-
-// Cookie Parser - necessário para ler cookies HttpOnly
+// Cookie Parser e Body Parser ANTES do rate limit (rotas precisam de req.body já parseado)
 app.use(cookieParser());
-
-// Body Parser
-// IMPORTANTE: Limite maior para uploads de arquivos (planilhas podem ser maiores)
-// O multer gerencia o tamanho do arquivo, então o body parser só precisa lidar com outros campos
-app.use(express.json({ limit: '10mb' })); // Aumentado para suportar outros campos grandes
+app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+// Rate Limiting adaptativo - admins têm limites muito mais altos
+app.use('/api', adaptiveRateLimit);
 
 // Servir arquivos estáticos (imagens) - OPCIONAL
 // Em produção, os assets são servidos pelo frontend/nginx, não pela API
@@ -126,6 +121,7 @@ import executiveNotificationEmailRoutes from './routes/executiveNotificationEmai
 import legalDocumentRoutes from './routes/legalDocumentRoutes';
 import sizeChartRoutes from './routes/sizeChartRoutes';
 import backupRoutes from './routes/backupRoutes';
+import shipmentRoutes from './routes/shipmentRoutes';
 
 // Routes
 // IMPORTANTE: Rotas mais específicas devem vir ANTES das rotas mais genéricas
@@ -152,6 +148,7 @@ app.use('/api/admin/branches', branchRoutes);
 app.use('/api/admin/users', userRoutes);
 app.use('/api/admin/dashboard', dashboardRoutes);
 app.use('/api/admin/reports', reportRoutes);
+app.use('/api/admin/shipments', shipmentRoutes);
 app.use('/api/admin/backups', backupRoutes);
 console.log('✅ Rotas de backup registradas em /api/admin/backups');
 app.use('/api/admin', smtpConfigRoutes); // Rota genérica por último
@@ -177,6 +174,7 @@ app.use('/admin/branches', branchRoutes);
 app.use('/admin/users', userRoutes);
 app.use('/admin/dashboard', dashboardRoutes);
 app.use('/admin/reports', reportRoutes);
+app.use('/admin/shipments', shipmentRoutes);
 app.use('/admin/backups', backupRoutes);
 console.log('✅ Rotas de backup registradas em /admin/backups');
 app.use('/admin', smtpConfigRoutes); // Rota genérica por último

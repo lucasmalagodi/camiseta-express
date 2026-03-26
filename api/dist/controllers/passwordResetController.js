@@ -4,6 +4,7 @@ exports.passwordResetController = void 0;
 const zod_1 = require("zod");
 const passwordResetService_1 = require("../services/passwordResetService");
 const emailService_1 = require("../services/emailService");
+const frontendUrl_1 = require("../config/frontendUrl");
 const forgotPasswordSchema = zod_1.z.object({
     email: zod_1.z.string().email()
 });
@@ -27,8 +28,7 @@ exports.passwordResetController = {
                     // Gerar token
                     const token = await passwordResetService_1.passwordResetService.createResetToken(agency.id);
                     // Construir URL de reset
-                    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
-                    const resetUrl = `${frontendUrl}/reset-password?token=${token}`;
+                    const resetUrl = `${(0, frontendUrl_1.getPublicFrontendUrl)()}/reset-password?token=${token}`;
                     // Enviar email
                     await emailService_1.emailService.sendPasswordResetEmail(agency.email, token, resetUrl);
                 }

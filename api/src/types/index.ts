@@ -243,10 +243,19 @@ export interface AgencyPointsImportItem {
 export interface AgencyPointsLedger {
     id: number;
     agencyId: number;
-    sourceType: 'IMPORT' | 'REDEEM';
+    sourceType: 'IMPORT' | 'REDEEM' | 'REFUND';
     sourceId: number;
     points: number; // DECIMAL(10,2) - mantido como number no TypeScript
     description?: string;
+    createdAt: Date;
+}
+
+export interface OrderCancellation {
+    id: number;
+    orderId: number;
+    reason: string;
+    emailSent: boolean;
+    emailBody: string | null;
     createdAt: Date;
 }
 
@@ -456,4 +465,64 @@ export interface CreateExecutiveNotificationEmailDto {
 export interface UpdateExecutiveNotificationEmailDto {
     email?: string;
     active?: boolean;
+}
+
+// Shipments (logistics)
+export type ShipmentStatus = 'PENDING' | 'READY_TO_POST' | 'POSTED' | 'DELIVERED' | 'CANCELED';
+
+export interface Shipment {
+    id: number;
+    agencyId: number;
+    status: ShipmentStatus;
+    shippingMethod: string;
+    trackingCode: string | null;
+    labelUrl: string | null;
+    postedAt: Date | null;
+    createdAt: Date;
+    updatedAt: Date;
+}
+
+export interface ShipmentOrderLink {
+    id: number;
+    shipmentId: number;
+    orderId: number;
+}
+
+export interface CreateShipmentDto {
+    orderIds: number[];
+    shippingMethod?: string;
+}
+
+export interface UpdateShipmentDto {
+    status?: ShipmentStatus;
+    trackingCode?: string | null;
+    shippingMethod?: string;
+    postedAt?: string | null;
+}
+
+export interface PendingOrderForShippingRow {
+    id: number;
+    agencyId: number;
+    totalPoints: number;
+    status: 'CONFIRMED';
+    createdAt: Date;
+    updatedAt: Date;
+    agencyName: string;
+    branchId: number | null;
+    branchName: string | null;
+    executiveId: number | null;
+    executiveName: string | null;
+    productsSummary: string;
+}
+
+export interface ProcessedOrderForAdminRow {
+    id: number;
+    agencyId: number;
+    totalPoints: number;
+    status: string;
+    createdAt: Date;
+    updatedAt: Date;
+    agencyName: string;
+    productsSummary: string;
+    shipmentStatus: ShipmentStatus;
 }

@@ -7,6 +7,7 @@ const express_1 = __importDefault(require("express"));
 const cors_1 = __importDefault(require("cors"));
 const helmet_1 = __importDefault(require("helmet"));
 const hpp_1 = __importDefault(require("hpp"));
+// @ts-ignore
 const cookie_parser_1 = __importDefault(require("cookie-parser"));
 const path_1 = __importDefault(require("path"));
 const fs_1 = __importDefault(require("fs"));
@@ -67,16 +68,12 @@ app.use((0, cors_1.default)({
     credentials: true
 }));
 app.use((0, hpp_1.default)());
-// Rate Limiting adaptativo - admins têm limites muito mais altos
-// Aplicar rate limiting adaptativo para todas as rotas da API
-app.use('/api', rateLimitMiddleware_1.adaptiveRateLimit);
-// Cookie Parser - necessário para ler cookies HttpOnly
+// Cookie Parser e Body Parser ANTES do rate limit (rotas precisam de req.body já parseado)
 app.use((0, cookie_parser_1.default)());
-// Body Parser
-// IMPORTANTE: Limite maior para uploads de arquivos (planilhas podem ser maiores)
-// O multer gerencia o tamanho do arquivo, então o body parser só precisa lidar com outros campos
-app.use(express_1.default.json({ limit: '10mb' })); // Aumentado para suportar outros campos grandes
+app.use(express_1.default.json({ limit: '10mb' }));
 app.use(express_1.default.urlencoded({ extended: true, limit: '10mb' }));
+// Rate Limiting adaptativo - admins têm limites muito mais altos
+app.use('/api', rateLimitMiddleware_1.adaptiveRateLimit);
 // Servir arquivos estáticos (imagens) - OPCIONAL
 // Em produção, os assets são servidos pelo frontend/nginx, não pela API
 // Apenas servir se o diretório existir (desenvolvimento local)
@@ -121,6 +118,7 @@ const executiveNotificationEmailRoutes_1 = __importDefault(require("./routes/exe
 const legalDocumentRoutes_1 = __importDefault(require("./routes/legalDocumentRoutes"));
 const sizeChartRoutes_1 = __importDefault(require("./routes/sizeChartRoutes"));
 const backupRoutes_1 = __importDefault(require("./routes/backupRoutes"));
+const shipmentRoutes_1 = __importDefault(require("./routes/shipmentRoutes"));
 // Routes
 // IMPORTANTE: Rotas mais específicas devem vir ANTES das rotas mais genéricas
 // Isso evita que rotas genéricas capturem requisições destinadas a rotas específicas
@@ -144,7 +142,9 @@ app.use('/api/admin/branches', branchRoutes_1.default);
 app.use('/api/admin/users', userRoutes_1.default);
 app.use('/api/admin/dashboard', dashboardRoutes_1.default);
 app.use('/api/admin/reports', reportRoutes_1.default);
+app.use('/api/admin/shipments', shipmentRoutes_1.default);
 app.use('/api/admin/backups', backupRoutes_1.default);
+console.log('✅ Rotas de backup registradas em /api/admin/backups');
 app.use('/api/admin', smtpConfigRoutes_1.default); // Rota genérica por último
 // Rotas sem prefixo /api (para produção com Nginx fazendo proxy direto)
 app.use('/auth', authRoutes_1.default);
@@ -166,7 +166,9 @@ app.use('/admin/branches', branchRoutes_1.default);
 app.use('/admin/users', userRoutes_1.default);
 app.use('/admin/dashboard', dashboardRoutes_1.default);
 app.use('/admin/reports', reportRoutes_1.default);
+app.use('/admin/shipments', shipmentRoutes_1.default);
 app.use('/admin/backups', backupRoutes_1.default);
+console.log('✅ Rotas de backup registradas em /admin/backups');
 app.use('/admin', smtpConfigRoutes_1.default); // Rota genérica por último
 // Health check - disponível em /health e /api/health
 app.get('/health', (req, res) => {

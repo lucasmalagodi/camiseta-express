@@ -1,5 +1,5 @@
-import { useState, useEffect } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useState, useEffect, useRef } from "react";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -14,7 +14,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
-import { Plus, X, Eye, Save, Loader2, ChevronRight, ChevronLeft, CheckCircle2, Check, Pencil } from "lucide-react";
+import { Plus, X, Eye, Save, Loader2, ChevronRight, ChevronLeft, CheckCircle2, Check, Pencil, Download, Upload } from "lucide-react";
 import { reportService } from "@/services/api";
 import { toast } from "sonner";
 import {
@@ -26,6 +26,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Progress } from "@/components/ui/progress";
+import { TOP_PRODUCTS_SOLD_PRESET } from "@/lib/reportPresets";
 
 interface ReportConfig {
   dimensions?: Array<{ field: string; alias?: string }>;
@@ -35,10 +36,52 @@ interface ReportConfig {
   limit?: number;
 }
 
+const EXPORT_VERSION = 1;
+
+function normalizeImportedConfig(raw: ReportConfig): ReportConfig {
+  return {
+    dimensions: raw.dimensions ?? [],
+    metrics: raw.metrics ?? [],
+    filters: raw.filters ?? [],
+    sort: raw.sort ?? [],
+    limit: raw.limit ?? 100,
+  };
+}
+
+function parseImportedReport(data: unknown): {
+  name: string;
+  sourceTable: string;
+  visualizationType: string;
+  isPublic: boolean;
+  config: ReportConfig;
+} | null {
+  if (!data || typeof data !== "object") return null;
+  const root = data as Record<string, unknown>;
+  const inner =
+    root.report && typeof root.report === "object"
+      ? (root.report as Record<string, unknown>)
+      : root;
+  const name = typeof inner.name === "string" ? inner.name.trim() : "";
+  const sourceTable = typeof inner.sourceTable === "string" ? inner.sourceTable : "";
+  const visualizationType =
+    typeof inner.visualizationType === "string" ? inner.visualizationType : "";
+  const isPublic = Boolean(inner.isPublic);
+  if (!name || !sourceTable || !visualizationType) return null;
+  if (!inner.config || typeof inner.config !== "object") return null;
+  return {
+    name,
+    sourceTable,
+    visualizationType,
+    isPublic,
+    config: normalizeImportedConfig(inner.config as ReportConfig),
+  };
+}
+
 const AdminReportBuilder = () => {
   const navigate = useNavigate();
   const { id } = useParams();
   const isEditing = !!id;
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const [currentStep, setCurrentStep] = useState(1);
   const totalSteps = 6;
@@ -64,6 +107,8 @@ const AdminReportBuilder = () => {
   const [isLoadingPreview, setIsLoadingPreview] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [selectedColumns, setSelectedColumns] = useState<string[]>([]);
+  const importFileRef = useRef<HTMLInputElement>(null);
+  const presetLoadedRef = useRef(false);
   const [editingColumn, setEditingColumn] = useState<string | null>(null);
   const [columnAliases, setColumnAliases] = useState<Record<string, string>>({});
 
@@ -71,7 +116,11 @@ const AdminReportBuilder = () => {
   const tableOptions = [
     { value: "agencies", label: "Agências", description: "Dados das agências cadastradas" },
     { value: "agency_points_import_items", label: "Imports de Pontos", description: "Dados dos imports de pontos realizados" },
-    { value: "order_items", label: "Produtos", description: "Dados dos produtos em pedidos" },
+    {
+      value: "order_items",
+      label: "Produtos (itens de pedido)",
+      description: "Vendas por produto — ex.: ranking de mais vendidos",
+    },
   ];
 
   useEffect(() => {
@@ -79,6 +128,36 @@ const AdminReportBuilder = () => {
       loadReport();
     }
   }, [id, isEditing]);
+
+  /** Modelo via URL: /admin/relatorios/novo?preset=top-products */
+  useEffect(() => {
+    if (isEditing) return;
+    if (presetLoadedRef.current) return;
+    if (searchParams.get("preset") !== "top-products") return;
+
+    presetLoadedRef.current = true;
+
+    const c = TOP_PRODUCTS_SOLD_PRESET.config;
+    setName(TOP_PRODUCTS_SOLD_PRESET.name);
+    setSourceTable(TOP_PRODUCTS_SOLD_PRESET.sourceTable);
+    setVisualizationType(TOP_PRODUCTS_SOLD_PRESET.visualizationType);
+    setConfig(
+      normalizeImportedConfig({
+        dimensions: [...c.dimensions],
+        metrics: c.metrics.map((m) => ({ ...m })),
+        filters: c.filters.map((f) => ({ ...f })),
+        sort: c.sort.map((s) => ({ ...s })),
+        limit: c.limit,
+      })
+    );
+    setSelectedColumns(c.dimensions.map((d) => d.field));
+    setIsPublic(false);
+    setCurrentStep(6);
+    setSearchParams({}, { replace: true });
+    toast.success(
+      'Modelo "Produtos mais vendidos" carregado. Use "Gerar Preview" abaixo para ver o ranking.'
+    );
+  }, [isEditing, searchParams, setSearchParams]);
 
   useEffect(() => {
     if (sourceTable && currentStep >= 2) {
@@ -375,6 +454,66 @@ const AdminReportBuilder = () => {
     }
   };
 
+  const handleExportJson = () => {
+    const payload = {
+      version: EXPORT_VERSION,
+      exportedAt: new Date().toISOString(),
+      report: {
+        name,
+        sourceTable,
+        visualizationType,
+        isPublic,
+        config,
+      },
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], {
+      type: "application/json;charset=utf-8",
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    const safeBase = name.trim().replace(/[^\w\-]+/g, "_").replace(/_+/g, "_").slice(0, 80);
+    a.href = url;
+    a.download = `${safeBase || "relatorio"}-export.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast.success("Arquivo JSON exportado");
+  };
+
+  const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const parsed: unknown = JSON.parse(text);
+      const imported = parseImportedReport(parsed);
+      if (!imported) {
+        toast.error(
+          "JSON inválido: é necessário name, sourceTable, visualizationType e config (objeto)."
+        );
+        return;
+      }
+      setName(imported.name);
+      setSourceTable(imported.sourceTable);
+      setVisualizationType(imported.visualizationType);
+      setIsPublic(imported.isPublic);
+      setConfig(imported.config);
+      if (imported.config.dimensions && imported.config.dimensions.length > 0) {
+        setSelectedColumns(
+          imported.config.dimensions.map((d) => d.field).filter(Boolean)
+        );
+      } else {
+        setSelectedColumns([]);
+      }
+      setPreviewData([]);
+      setColumnAliases({});
+      setCurrentStep(1);
+      toast.success("Configuração importada. Revise os passos e salve o relatório.");
+    } catch {
+      toast.error("Não foi possível ler o arquivo. Use um JSON válido.");
+    }
+  };
+
   const addDimension = () => {
     setConfig({
       ...config,
@@ -607,7 +746,7 @@ const AdminReportBuilder = () => {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h2 className="text-3xl font-bold">
             {isEditing ? "Editar Relatório" : "Novo Relatório"}
@@ -615,6 +754,28 @@ const AdminReportBuilder = () => {
           <p className="text-muted-foreground mt-1">
             Crie relatórios de forma simples e intuitiva
           </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2 shrink-0">
+          <input
+            ref={importFileRef}
+            type="file"
+            accept="application/json,.json"
+            className="sr-only"
+            onChange={handleImportFile}
+          />
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => importFileRef.current?.click()}
+          >
+            <Upload className="h-4 w-4 mr-2" />
+            Importar JSON
+          </Button>
+          <Button type="button" variant="outline" size="sm" onClick={handleExportJson}>
+            <Download className="h-4 w-4 mr-2" />
+            Exportar JSON
+          </Button>
         </div>
       </div>
 

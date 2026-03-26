@@ -44,23 +44,65 @@ const getAssetsBaseUrl = (): string => {
   return "";
 };
 
-// Função helper para fazer requisições autenticadas
+// Callback chamado quando a API retorna 401 em rota admin (token expirado/inválido)
+let onAdminUnauthorized: (() => void) | null = null;
+export function setOnAdminUnauthorized(cb: (() => void) | null) {
+  onAdminUnauthorized = cb;
+}
+
+// Callback para atualizar última atividade do admin (timeout de inatividade)
+let onAdminActivity: (() => void) | null = null;
+export function setOnAdminActivity(cb: (() => void) | null) {
+  onAdminActivity = cb;
+}
+
+// Função helper para fazer requisições autenticadas (admin)
 const getAuthHeaders = () => {
   const token = localStorage.getItem("adminToken");
+  if (token) onAdminActivity?.();
   return {
     "Content-Type": "application/json",
     ...(token && { Authorization: `Bearer ${token}` }),
   };
 };
 
+/** Se a resposta for 401 e houver token admin, dispara logout (token expirado/inválido). */
+function checkAdmin401(response: Response): void {
+  const token = localStorage.getItem("adminToken");
+  if (response.status === 401 && token) {
+    onAdminUnauthorized?.();
+  }
+}
+
+// Callback quando API retorna 401 em rota de agência (token expirado/inválido)
+let onAgencyUnauthorized: (() => void) | null = null;
+export function setOnAgencyUnauthorized(cb: (() => void) | null) {
+  onAgencyUnauthorized = cb;
+}
+
+// Callback para atualizar última atividade da agência (timeout de inatividade)
+let onAgencyActivity: (() => void) | null = null;
+export function setOnAgencyActivity(cb: (() => void) | null) {
+  onAgencyActivity = cb;
+}
+
 // Função helper para requisições autenticadas de agência
 const getAgencyAuthHeaders = () => {
   const token = localStorage.getItem("agencyToken");
+  if (token) onAgencyActivity?.();
   return {
     "Content-Type": "application/json",
     ...(token && { Authorization: `Bearer ${token}` }),
   };
 };
+
+/** Se a resposta for 401 e houver token de agência, dispara logout. */
+function checkAgency401(response: Response): void {
+  const token = localStorage.getItem("agencyToken");
+  if (response.status === 401 && token) {
+    onAgencyUnauthorized?.();
+  }
+}
 
 // Função helper para requisições públicas (sem autenticação)
 const getPublicHeaders = () => {
@@ -103,6 +145,7 @@ export const categoryService = {
       headers: getAuthHeaders(),
       body: JSON.stringify({ name }),
     });
+    checkAdmin401(response);
     if (!response.ok) throw new Error("Erro ao criar categoria");
     return await response.json();
   },
@@ -113,6 +156,7 @@ export const categoryService = {
       headers: getAuthHeaders(),
       body: JSON.stringify({ name }),
     });
+    checkAdmin401(response);
     if (!response.ok) throw new Error("Erro ao atualizar categoria");
     return await response.json();
   },
@@ -120,8 +164,9 @@ export const categoryService = {
   async delete(id: number) {
     const response = await fetch(`${getApiUrlValue()}/categories/${id}`, {
       method: "DELETE",
-      headers: getAuthHeaders(),
-    });
+headers: getAuthHeaders(),
+      });
+      checkAdmin401(response);
     if (!response.ok) throw new Error("Erro ao desativar categoria");
     return await response.json();
   },
@@ -160,6 +205,7 @@ export const productService = {
       headers: getAuthHeaders(),
       body: JSON.stringify(data),
     });
+    checkAdmin401(response);
     if (!response.ok) throw new Error("Erro ao criar produto");
     return await response.json();
   },
@@ -170,6 +216,7 @@ export const productService = {
       headers: getAuthHeaders(),
       body: JSON.stringify(data),
     });
+    checkAdmin401(response);
     if (!response.ok) throw new Error("Erro ao atualizar produto");
     return await response.json();
   },
@@ -177,8 +224,9 @@ export const productService = {
   async delete(id: number) {
     const response = await fetch(`${getApiUrlValue()}/products/${id}`, {
       method: "DELETE",
-      headers: getAuthHeaders(),
-    });
+headers: getAuthHeaders(),
+      });
+      checkAdmin401(response);
     if (!response.ok) throw new Error("Erro ao desativar produto");
     return await response.json();
   },
@@ -328,6 +376,7 @@ export const productImageService = {
       headers: getAuthHeaders(),
       body: JSON.stringify(data),
     });
+    checkAdmin401(response);
     if (!response.ok) throw new Error("Erro ao criar imagem");
     return await response.json();
   },
@@ -338,6 +387,7 @@ export const productImageService = {
       headers: getAuthHeaders(),
       body: JSON.stringify(data),
     });
+    checkAdmin401(response);
     if (!response.ok) throw new Error("Erro ao atualizar imagem");
     return await response.json();
   },
@@ -348,6 +398,7 @@ export const productImageService = {
       headers: getAuthHeaders(),
       body: JSON.stringify({ updates }),
     });
+    checkAdmin401(response);
     if (!response.ok) {
       const error = await response.json();
       throw new Error(error.message || "Erro ao atualizar ordem");
@@ -358,8 +409,9 @@ export const productImageService = {
   async delete(productId: number, imageId: number) {
     const response = await fetch(`${getApiUrlValue()}/products/${productId}/images/${imageId}`, {
       method: "DELETE",
-      headers: getAuthHeaders(),
-    });
+headers: getAuthHeaders(),
+      });
+      checkAdmin401(response);
     if (!response.ok) throw new Error("Erro ao desativar imagem");
     return await response.json();
   },
@@ -382,6 +434,7 @@ export const productPriceService = {
       headers: getAuthHeaders(),
       body: JSON.stringify(data),
     });
+    checkAdmin401(response);
     if (!response.ok) throw new Error("Erro ao criar preço");
     return await response.json();
   },
@@ -392,6 +445,7 @@ export const productPriceService = {
       headers: getAuthHeaders(),
       body: JSON.stringify(data),
     });
+    checkAdmin401(response);
     if (!response.ok) throw new Error("Erro ao atualizar preço");
     return await response.json();
   },
@@ -399,8 +453,9 @@ export const productPriceService = {
   async delete(productId: number, priceId: number) {
     const response = await fetch(`${getApiUrlValue()}/products/${productId}/prices/${priceId}`, {
       method: "DELETE",
-      headers: getAuthHeaders(),
-    });
+headers: getAuthHeaders(),
+      });
+      checkAdmin401(response);
     if (!response.ok) throw new Error("Erro ao desativar preço");
     return await response.json();
   },
@@ -423,6 +478,7 @@ export const productVariantService = {
       headers: getAuthHeaders(),
       body: JSON.stringify(data),
     });
+    checkAdmin401(response);
     if (!response.ok) {
       const error = await response.json();
       throw new Error(error.message || "Erro ao criar variação");
@@ -436,6 +492,7 @@ export const productVariantService = {
       headers: getAuthHeaders(),
       body: JSON.stringify(data),
     });
+    checkAdmin401(response);
     if (!response.ok) {
       const error = await response.json();
       throw new Error(error.message || "Erro ao atualizar variação");
@@ -446,8 +503,9 @@ export const productVariantService = {
   async delete(productId: number, variantId: number) {
     const response = await fetch(`${getApiUrlValue()}/products/${productId}/variants/${variantId}`, {
       method: "DELETE",
-      headers: getAuthHeaders(),
-    });
+headers: getAuthHeaders(),
+      });
+      checkAdmin401(response);
     if (!response.ok) throw new Error("Erro ao desativar variação");
     return await response.json();
   },
@@ -457,8 +515,9 @@ export const productVariantService = {
 export const agencyPointsImportService = {
   async getAll() {
     const response = await fetch(`${getApiUrlValue()}/agency-points-imports`, {
-      headers: getAuthHeaders(),
-    });
+headers: getAuthHeaders(),
+      });
+      checkAdmin401(response);
     if (!response.ok) throw new Error("Erro ao buscar imports");
     const data = await response.json();
     return data.data || [];
@@ -490,8 +549,9 @@ export const agencyPointsImportService = {
 
   async getById(id: number) {
     const response = await fetch(`${getApiUrlValue()}/agency-points-imports/${id}`, {
-      headers: getAuthHeaders(),
-    });
+headers: getAuthHeaders(),
+      });
+      checkAdmin401(response);
     if (!response.ok) throw new Error("Erro ao buscar import");
     return await response.json();
   },
@@ -502,6 +562,7 @@ export const agencyPointsImportService = {
       headers: getAuthHeaders(),
       body: JSON.stringify(data),
     });
+    checkAdmin401(response);
     if (!response.ok) {
       const error = await response.json();
       throw new Error(error.message || "Erro ao criar import");
@@ -512,8 +573,9 @@ export const agencyPointsImportService = {
   async delete(importId: number) {
     const response = await fetch(`${getApiUrlValue()}/agency-points-imports/${importId}`, {
       method: 'DELETE',
-      headers: getAuthHeaders(),
-    });
+headers: getAuthHeaders(),
+      });
+      checkAdmin401(response);
 
     if (!response.ok) {
       const error = await response.json();
@@ -525,8 +587,9 @@ export const agencyPointsImportService = {
 
   async getStatus(importId: number) {
     const response = await fetch(`${getApiUrlValue()}/agency-points-imports/${importId}/status`, {
-      headers: getAuthHeaders(),
-    });
+headers: getAuthHeaders(),
+      });
+      checkAdmin401(response);
 
     if (!response.ok) {
       const error = await response.json();
@@ -544,12 +607,28 @@ export const agencyPointsImportService = {
     const queryString = params.toString();
     const url = `${getApiUrlValue()}/agency-points-imports/${importId}/logs${queryString ? `?${queryString}` : ''}`;
     const response = await fetch(url, {
-      headers: getAuthHeaders(),
-    });
+headers: getAuthHeaders(),
+      });
+      checkAdmin401(response);
 
     if (!response.ok) {
       const error = await response.json();
       throw new Error(error.message || 'Erro ao buscar logs da importação');
+    }
+
+    return await response.json();
+  },
+
+  async resync(importId: number) {
+    const response = await fetch(`${getApiUrlValue()}/agency-points-imports/${importId}/resync`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+    });
+    checkAdmin401(response);
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.message || 'Erro ao re-sincronizar importação com ledger');
     }
 
     return await response.json();
@@ -566,8 +645,9 @@ export const agencyService = {
     const queryString = params.toString();
     const url = `${getApiUrlValue()}/agencies${queryString ? `?${queryString}` : ""}`;
     const response = await fetch(url, {
-      headers: getAuthHeaders(),
-    });
+headers: getAuthHeaders(),
+      });
+      checkAdmin401(response);
     if (!response.ok) throw new Error("Erro ao buscar agências");
     const data = await response.json();
     return data.data || [];
@@ -575,17 +655,34 @@ export const agencyService = {
 
   async getById(id: number) {
     const response = await fetch(`${getApiUrlValue()}/agencies/${id}`, {
-      headers: getAuthHeaders(),
-    });
+headers: getAuthHeaders(),
+      });
+      checkAdmin401(response);
     if (!response.ok) throw new Error("Erro ao buscar agência");
     return await response.json();
   },
 
   async getBalance(id: number) {
     const response = await fetch(`${getApiUrlValue()}/agencies/${id}/balance`, {
-      headers: getAuthHeaders(),
-    });
+headers: getAuthHeaders(),
+      });
+      checkAdmin401(response);
     if (!response.ok) throw new Error("Erro ao buscar balance");
+    return await response.json();
+  },
+
+  // Admin: atualizar apenas o e-mail da agência (outros campos ficam bloqueados na UI)
+  async updateEmail(id: number, email: string) {
+    const response = await fetch(`${getApiUrlValue()}/agencies/${id}`, {
+      method: "PUT",
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ email }),
+    });
+    checkAdmin401(response);
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      throw new Error(error.message || "Erro ao atualizar e-mail");
+    }
     return await response.json();
   },
 
@@ -594,6 +691,7 @@ export const agencyService = {
     const response = await fetch(`${getApiUrlValue()}/agencies/me`, {
       headers: getAgencyAuthHeaders(),
     });
+    checkAgency401(response);
     if (!response.ok) throw new Error("Erro ao buscar dados da agência");
     return await response.json();
   },
@@ -604,6 +702,7 @@ export const agencyService = {
       headers: getAgencyAuthHeaders(),
       body: JSON.stringify(data),
     });
+    checkAgency401(response);
     if (!response.ok) {
       const error = await response.json();
       throw new Error(error.message || "Erro ao atualizar dados");
@@ -617,6 +716,7 @@ export const agencyService = {
       headers: getAgencyAuthHeaders(),
       body: JSON.stringify({ currentPassword, newPassword }),
     });
+    checkAgency401(response);
     if (!response.ok) {
       const error = await response.json();
       throw new Error(error.message || "Erro ao alterar senha");
@@ -629,8 +729,9 @@ export const agencyService = {
 export const agencyPointsLedgerService = {
   async getByAgencyId(agencyId: number) {
     const response = await fetch(`${getApiUrlValue()}/agencies/${agencyId}/ledger`, {
-      headers: getAuthHeaders(),
-    });
+headers: getAuthHeaders(),
+      });
+      checkAdmin401(response);
     if (!response.ok) throw new Error("Erro ao buscar histórico");
     return await response.json();
   },
@@ -679,6 +780,7 @@ export const agencyRegistrationService = {
       headers: getPublicHeaders(),
       body: JSON.stringify(data),
     });
+    checkAdmin401(response);
     if (!response.ok) {
       const error = await response.json();
       throw new Error(error.message || "Erro ao registrar agência");
@@ -691,8 +793,9 @@ export const agencyRegistrationService = {
 export const smtpConfigService = {
   async getConfig() {
     const response = await fetch(`${getApiUrlValue()}/admin/smtp-config`, {
-      headers: getAuthHeaders(),
-    });
+headers: getAuthHeaders(),
+      });
+      checkAdmin401(response);
     if (!response.ok) throw new Error("Erro ao buscar configuração SMTP");
     return await response.json();
   },
@@ -711,6 +814,7 @@ export const smtpConfigService = {
       headers: getAuthHeaders(),
       body: JSON.stringify(data),
     });
+    checkAdmin401(response);
     if (!response.ok) {
       const error = await response.json();
       throw new Error(error.message || "Erro ao salvar configuração SMTP");
@@ -738,8 +842,8 @@ export const smtpConfigService = {
 
 // Orders (Pedidos)
 export const orderService = {
-  // Criar pedido (checkout) - agência autenticada
-  async create(agencyId: number, items: Array<{ productId: number; quantity: number }>) {
+  // Criar pedido (checkout) - agência autenticada (variantId = modelo + tamanho para camisas)
+  async create(agencyId: number, items: Array<{ productId: number; quantity: number; variantId?: number }>) {
     const response = await fetch(`${getApiUrlValue()}/orders/agency/${agencyId}`, {
       method: "POST",
       headers: getPublicHeaders(),
@@ -788,6 +892,7 @@ export const orderService = {
     const response = await fetch(`${getApiUrlValue()}/agencies/me/orders`, {
       headers: getAgencyAuthHeaders(),
     });
+    checkAgency401(response);
     if (!response.ok) {
       const error = await response.json();
       throw new Error(error.message || "Erro ao buscar meus pedidos");
@@ -801,6 +906,7 @@ export const orderService = {
     const response = await fetch(`${getApiUrlValue()}/agencies/me/orders/${id}`, {
       headers: getAgencyAuthHeaders(),
     });
+    checkAgency401(response);
     if (!response.ok) {
       const error = await response.json();
       if (response.status === 404) {
@@ -814,8 +920,9 @@ export const orderService = {
   // Listar todos os pedidos (admin)
   async getAll() {
     const response = await fetch(`${getApiUrlValue()}/orders`, {
-      headers: getAuthHeaders(),
-    });
+headers: getAuthHeaders(),
+      });
+      checkAdmin401(response);
     if (!response.ok) throw new Error("Erro ao buscar pedidos");
     const data = await response.json();
     return data.data || [];
@@ -824,8 +931,9 @@ export const orderService = {
   // Buscar último pedido (para notificações)
   async getLatest() {
     const response = await fetch(`${getApiUrlValue()}/orders/latest`, {
-      headers: getAuthHeaders(),
-    });
+headers: getAuthHeaders(),
+      });
+      checkAdmin401(response);
     if (!response.ok) {
       // Se for 400 (Invalid ID), pode ser que não há pedidos ainda
       if (response.status === 400) {
@@ -836,14 +944,297 @@ export const orderService = {
     const data = await response.json();
     return data.order || null;
   },
+
+  // Cancelar pedido (admin): motivo obrigatório, extorno de pontos e opção de e-mail
+  async cancelWithReason(
+    id: number,
+    payload: { reason: string; sendEmail?: boolean; emailMessage?: string }
+  ) {
+    const response = await fetch(`${getApiUrlValue()}/orders/${id}/cancel`, {
+      method: "PUT",
+      headers: getAuthHeaders(),
+      body: JSON.stringify({
+        reason: payload.reason,
+        sendEmail: payload.sendEmail ?? false,
+        emailMessage: payload.emailMessage ?? payload.reason,
+      }),
+    });
+    checkAdmin401(response);
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      throw new Error(data.message || "Erro ao cancelar pedido");
+    }
+    return await response.json();
+  },
+
+  // Admin: alterar variação (tipo/modelo + tamanho) de um item do pedido (ajusta estoque)
+  async updateOrderItemVariant(orderId: number, itemId: number, productVariantId: number) {
+    const response = await fetch(`${getApiUrlValue()}/orders/${orderId}/items/${itemId}/variant`, {
+      method: "PATCH",
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ productVariantId }),
+    });
+    checkAdmin401(response);
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      throw new Error(data.message || "Erro ao alterar tipo/tamanho do item");
+    }
+    return await response.json();
+  },
+};
+
+export type ShipmentStatus =
+  | "PENDING"
+  | "READY_TO_POST"
+  | "POSTED"
+  | "DELIVERED"
+  | "CANCELED";
+
+export const shipmentService = {
+  async listPendingOrders(filters?: {
+    agencyId?: number;
+    dateFrom?: string;
+    dateTo?: string;
+    branchId?: number;
+    executiveId?: number;
+  }) {
+    const params = new URLSearchParams();
+    if (filters?.agencyId) params.append("agencyId", String(filters.agencyId));
+    if (filters?.dateFrom) params.append("dateFrom", filters.dateFrom);
+    if (filters?.dateTo) params.append("dateTo", filters.dateTo);
+    if (filters?.branchId) params.append("branchId", String(filters.branchId));
+    if (filters?.executiveId) params.append("executiveId", String(filters.executiveId));
+    const q = params.toString();
+    const response = await fetch(
+      `${getApiUrlValue()}/admin/shipments/pending-orders${q ? `?${q}` : ""}`,
+      { headers: getAuthHeaders() }
+    );
+    checkAdmin401(response);
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(err.message || "Erro ao listar pedidos aguardando envio");
+    }
+    const data = await response.json();
+    return data.data || [];
+  },
+
+  async listProcessedOrders(filters?: { status?: ShipmentStatus; agencyId?: number }) {
+    const params = new URLSearchParams();
+    if (filters?.status) params.append("status", filters.status);
+    if (filters?.agencyId) params.append("agencyId", String(filters.agencyId));
+    const q = params.toString();
+
+    const response = await fetch(
+      `${getApiUrlValue()}/admin/shipments/processed-orders${q ? `?${q}` : ""}`,
+      { headers: getAuthHeaders() }
+    );
+    checkAdmin401(response);
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(err.message || "Erro ao listar pedidos processados");
+    }
+
+    const data = await response.json();
+    return data.data || [];
+  },
+
+  async create(payload: { orderIds: number[]; shippingMethod?: string }) {
+    const response = await fetch(`${getApiUrlValue()}/admin/shipments`, {
+      method: "POST",
+      headers: getAuthHeaders(),
+      body: JSON.stringify(payload),
+    });
+    checkAdmin401(response);
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(err.message || "Erro ao criar remessa");
+    }
+    return await response.json();
+  },
+
+  /** Uma remessa por agência (pedidos agrupados automaticamente no servidor). */
+  async createBatch(payload: { orderIds: number[]; shippingMethod?: string }) {
+    const response = await fetch(`${getApiUrlValue()}/admin/shipments/batch`, {
+      method: "POST",
+      headers: getAuthHeaders(),
+      body: JSON.stringify(payload),
+    });
+    checkAdmin401(response);
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(err.message || "Erro ao criar remessas");
+    }
+    return await response.json() as Promise<{
+      success: boolean;
+      count: number;
+      shipments: Array<{ id: number; agencyId: number; orderIds: number[] }>;
+    }>;
+  },
+
+  async list(filters?: { status?: ShipmentStatus; agencyId?: number }) {
+    const params = new URLSearchParams();
+    if (filters?.status) params.append("status", filters.status);
+    if (filters?.agencyId) params.append("agencyId", String(filters.agencyId));
+    const q = params.toString();
+    const response = await fetch(
+      `${getApiUrlValue()}/admin/shipments${q ? `?${q}` : ""}`,
+      { headers: getAuthHeaders() }
+    );
+    checkAdmin401(response);
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(err.message || "Erro ao listar remessas");
+    }
+    const data = await response.json();
+    return data.data || [];
+  },
+
+  async getById(id: number) {
+    const response = await fetch(`${getApiUrlValue()}/admin/shipments/${id}`, {
+      headers: getAuthHeaders(),
+      cache: "no-store",
+    });
+    checkAdmin401(response);
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(err.message || "Erro ao buscar remessa");
+    }
+    return await response.json();
+  },
+
+  /** Fila única: pedidos de remessas PENDING com prepared_at nulo (ordem: remessa id, pedido id). */
+  async getPreparationQueue() {
+    const response = await fetch(`${getApiUrlValue()}/admin/shipments/preparation/queue`, {
+      headers: getAuthHeaders(),
+      cache: "no-store",
+    });
+    checkAdmin401(response);
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(err.message || "Erro ao carregar fila de preparação");
+    }
+    const data = await response.json();
+    return data.data || [];
+  },
+
+  /** Marca pedido como processado (conferido); enviado ao fechar o lote na preparação. */
+  async markOrderProcessed(orderId: number) {
+    const response = await fetch(`${getApiUrlValue()}/admin/shipments/preparation/mark-processed`, {
+      method: "POST",
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ orderId }),
+    });
+    checkAdmin401(response);
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(err.message || "Erro ao marcar pedido como processado");
+    }
+    return await response.json() as Promise<{
+      success: boolean;
+      shipmentId: number;
+    }>;
+  },
+
+  async finalizePreparationBatch(orderIds: number[]) {
+    const response = await fetch(`${getApiUrlValue()}/admin/shipments/preparation/finalize-batch`, {
+      method: "POST",
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ orderIds }),
+    });
+    checkAdmin401(response);
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(err.message || "Erro ao finalizar lote");
+    }
+    return await response.json() as Promise<{
+      success: boolean;
+      batchId: number;
+      orderIds: number[];
+    }>;
+  },
+
+  async getPreparationBatches() {
+    const response = await fetch(`${getApiUrlValue()}/admin/shipments/preparation/batches`, {
+      headers: getAuthHeaders(),
+      cache: "no-store",
+    });
+    checkAdmin401(response);
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(err.message || "Erro ao listar lotes");
+    }
+    const data = await response.json();
+    return data.data || [];
+  },
+
+  async getPreparationBatchDetail(batchId: number) {
+    const response = await fetch(
+      `${getApiUrlValue()}/admin/shipments/preparation/batches/${batchId}/detail`,
+      { headers: getAuthHeaders(), cache: "no-store" }
+    );
+    checkAdmin401(response);
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(err.message || "Erro ao carregar detalhes do lote");
+    }
+    return await response.json();
+  },
+
+  async downloadPreparationBatchCsv(batchId: number): Promise<void> {
+    const response = await fetch(
+      `${getApiUrlValue()}/admin/shipments/preparation/batches/${batchId}/export-csv`,
+      { headers: getAuthHeaders(), cache: "no-store" }
+    );
+    checkAdmin401(response);
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(err.message || "Erro ao baixar CSV do lote");
+    }
+    const blob = await response.blob();
+    const cd = response.headers.get("Content-Disposition");
+    let filename = `lote-${batchId}.csv`;
+    const m = cd?.match(/filename="?([^";]+)"?/i);
+    if (m?.[1]) filename = m[1].trim();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  },
+
+  async update(
+    id: number,
+    body: {
+      status?: ShipmentStatus;
+      trackingCode?: string | null;
+      shippingMethod?: string;
+      postedAt?: string | null;
+    }
+  ) {
+    const response = await fetch(`${getApiUrlValue()}/admin/shipments/${id}`, {
+      method: "PATCH",
+      headers: getAuthHeaders(),
+      body: JSON.stringify(body),
+    });
+    checkAdmin401(response);
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(err.message || "Erro ao atualizar remessa");
+    }
+    return await response.json();
+  },
 };
 
 // Order Notification Emails
 export const orderNotificationEmailService = {
   async getAll() {
     const response = await fetch(`${getApiUrlValue()}/admin/order-notification-emails`, {
-      headers: getAuthHeaders(),
-    });
+headers: getAuthHeaders(),
+      });
+      checkAdmin401(response);
     if (!response.ok) throw new Error("Erro ao buscar emails de notificação");
     const data = await response.json();
     return data.data || [];
@@ -851,8 +1242,9 @@ export const orderNotificationEmailService = {
 
   async getActive() {
     const response = await fetch(`${getApiUrlValue()}/admin/order-notification-emails/active`, {
-      headers: getAuthHeaders(),
-    });
+headers: getAuthHeaders(),
+      });
+      checkAdmin401(response);
     if (!response.ok) throw new Error("Erro ao buscar emails ativos");
     const data = await response.json();
     return data.data || [];
@@ -860,8 +1252,9 @@ export const orderNotificationEmailService = {
 
   async getById(id: number) {
     const response = await fetch(`${getApiUrlValue()}/admin/order-notification-emails/${id}`, {
-      headers: getAuthHeaders(),
-    });
+headers: getAuthHeaders(),
+      });
+      checkAdmin401(response);
     if (!response.ok) throw new Error("Erro ao buscar email");
     return await response.json();
   },
@@ -872,6 +1265,7 @@ export const orderNotificationEmailService = {
       headers: getAuthHeaders(),
       body: JSON.stringify({ email }),
     });
+    checkAdmin401(response);
     if (!response.ok) {
       const error = await response.json();
       throw new Error(error.message || "Erro ao criar email de notificação");
@@ -885,6 +1279,7 @@ export const orderNotificationEmailService = {
       headers: getAuthHeaders(),
       body: JSON.stringify(data),
     });
+    checkAdmin401(response);
     if (!response.ok) {
       const error = await response.json();
       throw new Error(error.message || "Erro ao atualizar email");
@@ -895,8 +1290,9 @@ export const orderNotificationEmailService = {
   async delete(id: number) {
     const response = await fetch(`${getApiUrlValue()}/admin/order-notification-emails/${id}`, {
       method: "DELETE",
-      headers: getAuthHeaders(),
-    });
+headers: getAuthHeaders(),
+      });
+      checkAdmin401(response);
     if (!response.ok) {
       const error = await response.json();
       throw new Error(error.message || "Erro ao deletar email");
@@ -909,8 +1305,9 @@ export const orderNotificationEmailService = {
 export const executiveService = {
   async getAll() {
     const response = await fetch(`${getApiUrlValue()}/admin/executives`, {
-      headers: getAuthHeaders(),
-    });
+headers: getAuthHeaders(),
+      });
+      checkAdmin401(response);
     if (!response.ok) throw new Error("Erro ao buscar executivos");
     const data = await response.json();
     return data.data || [];
@@ -918,8 +1315,9 @@ export const executiveService = {
 
   async getActive() {
     const response = await fetch(`${getApiUrlValue()}/admin/executives/active`, {
-      headers: getAuthHeaders(),
-    });
+headers: getAuthHeaders(),
+      });
+      checkAdmin401(response);
     if (!response.ok) throw new Error("Erro ao buscar executivos ativos");
     const data = await response.json();
     return data.data || [];
@@ -927,8 +1325,9 @@ export const executiveService = {
 
   async getUniqueExecutiveNames() {
     const response = await fetch(`${getApiUrlValue()}/admin/executives/unique-names`, {
-      headers: getAuthHeaders(),
-    });
+headers: getAuthHeaders(),
+      });
+      checkAdmin401(response);
     if (!response.ok) throw new Error("Erro ao buscar nomes de executivos");
     const data = await response.json();
     return data.data || [];
@@ -936,8 +1335,9 @@ export const executiveService = {
 
   async getById(id: number) {
     const response = await fetch(`${getApiUrlValue()}/admin/executives/${id}`, {
-      headers: getAuthHeaders(),
-    });
+headers: getAuthHeaders(),
+      });
+      checkAdmin401(response);
     if (!response.ok) throw new Error("Erro ao buscar executivo");
     return await response.json();
   },
@@ -948,6 +1348,7 @@ export const executiveService = {
       headers: getAuthHeaders(),
       body: JSON.stringify(data),
     });
+    checkAdmin401(response);
     if (!response.ok) {
       const error = await response.json();
       throw new Error(error.message || "Erro ao criar executivo");
@@ -961,6 +1362,7 @@ export const executiveService = {
       headers: getAuthHeaders(),
       body: JSON.stringify(data),
     });
+    checkAdmin401(response);
     if (!response.ok) {
       const error = await response.json();
       throw new Error(error.message || "Erro ao atualizar executivo");
@@ -971,8 +1373,9 @@ export const executiveService = {
   async delete(id: number) {
     const response = await fetch(`${getApiUrlValue()}/admin/executives/${id}`, {
       method: "DELETE",
-      headers: getAuthHeaders(),
-    });
+headers: getAuthHeaders(),
+      });
+      checkAdmin401(response);
     if (!response.ok) {
       const error = await response.json();
       throw new Error(error.message || "Erro ao deletar executivo");
@@ -998,16 +1401,18 @@ export const heroProductService = {
   // Endpoints administrativos
   async getAll() {
     const response = await fetch(`${getApiUrlValue()}/hero-products`, {
-      headers: getAuthHeaders(),
-    });
+headers: getAuthHeaders(),
+      });
+      checkAdmin401(response);
     if (!response.ok) throw new Error("Erro ao buscar produtos em destaque");
     return await response.json();
   },
 
   async getById(id: number) {
     const response = await fetch(`${getApiUrlValue()}/hero-products/${id}`, {
-      headers: getAuthHeaders(),
-    });
+headers: getAuthHeaders(),
+      });
+      checkAdmin401(response);
     if (!response.ok) throw new Error("Erro ao buscar produto em destaque");
     return await response.json();
   },
@@ -1045,6 +1450,7 @@ export const heroProductService = {
       headers: getAuthHeaders(),
       body: JSON.stringify(data),
     });
+    checkAdmin401(response);
     if (!response.ok) {
       const error = await response.json();
       throw new Error(error.message || "Erro ao criar banner");
@@ -1066,6 +1472,7 @@ export const heroProductService = {
       headers: getAuthHeaders(),
       body: JSON.stringify(data),
     });
+    checkAdmin401(response);
     if (!response.ok) {
       const error = await response.json();
       throw new Error(error.message || "Erro ao atualizar banner");
@@ -1076,8 +1483,9 @@ export const heroProductService = {
   async delete(id: number) {
     const response = await fetch(`${getApiUrlValue()}/hero-products/${id}`, {
       method: "DELETE",
-      headers: getAuthHeaders(),
-    });
+headers: getAuthHeaders(),
+      });
+      checkAdmin401(response);
     if (!response.ok) {
       const error = await response.json();
       throw new Error(error.message || "Erro ao deletar produto em destaque");
@@ -1091,6 +1499,7 @@ export const heroProductService = {
       headers: getAuthHeaders(),
       body: JSON.stringify({ updates }),
     });
+    checkAdmin401(response);
     if (!response.ok) {
       const error = await response.json();
       throw new Error(error.message || "Erro ao atualizar ordem");
@@ -1111,8 +1520,9 @@ export const adminUserService = {
     const queryString = params.toString();
     const url = `${getApiUrlValue()}/admin/users${queryString ? `?${queryString}` : ""}`;
     const response = await fetch(url, {
-      headers: getAuthHeaders(),
-    });
+headers: getAuthHeaders(),
+      });
+      checkAdmin401(response);
     if (!response.ok) {
       const error = await response.json();
       throw new Error(error.message || "Erro ao buscar usuários");
@@ -1123,8 +1533,9 @@ export const adminUserService = {
 
   async getById(id: number) {
     const response = await fetch(`${getApiUrlValue()}/admin/users/${id}`, {
-      headers: getAuthHeaders(),
-    });
+headers: getAuthHeaders(),
+      });
+      checkAdmin401(response);
     if (!response.ok) {
       const error = await response.json();
       throw new Error(error.message || "Erro ao buscar usuário");
@@ -1138,6 +1549,7 @@ export const adminUserService = {
       headers: getAuthHeaders(),
       body: JSON.stringify(data),
     });
+    checkAdmin401(response);
     if (!response.ok) {
       const error = await response.json();
       throw new Error(error.message || "Erro ao criar usuário");
@@ -1151,6 +1563,7 @@ export const adminUserService = {
       headers: getAuthHeaders(),
       body: JSON.stringify(data),
     });
+    checkAdmin401(response);
     if (!response.ok) {
       const error = await response.json();
       throw new Error(error.message || "Erro ao atualizar usuário");
@@ -1164,6 +1577,7 @@ export const adminUserService = {
       headers: getAuthHeaders(),
       body: JSON.stringify({ active }),
     });
+    checkAdmin401(response);
     if (!response.ok) {
       const error = await response.json();
       throw new Error(error.message || "Erro ao atualizar status do usuário");
@@ -1181,6 +1595,7 @@ export const ticketService = {
       headers: getAgencyAuthHeaders(),
       body: JSON.stringify(data),
     });
+    checkAgency401(response);
     if (!response.ok) {
       const error = await response.json();
       throw new Error(error.message || "Erro ao criar ticket");
@@ -1193,6 +1608,7 @@ export const ticketService = {
     const response = await fetch(`${getApiUrlValue()}/tickets/agency`, {
       headers: getAgencyAuthHeaders(),
     });
+    checkAgency401(response);
     if (!response.ok) {
       const error = await response.json();
       throw new Error(error.message || "Erro ao buscar tickets");
@@ -1205,6 +1621,7 @@ export const ticketService = {
     const response = await fetch(`${getApiUrlValue()}/tickets/agency/${id}`, {
       headers: getAgencyAuthHeaders(),
     });
+    checkAgency401(response);
     if (!response.ok) {
       const error = await response.json();
       throw new Error(error.message || "Erro ao buscar ticket");
@@ -1217,6 +1634,7 @@ export const ticketService = {
     const response = await fetch(`${getApiUrlValue()}/tickets/agency/${id}/messages`, {
       headers: getAgencyAuthHeaders(),
     });
+    checkAgency401(response);
     if (!response.ok) {
       const error = await response.json();
       throw new Error(error.message || "Erro ao buscar mensagens");
@@ -1231,6 +1649,7 @@ export const ticketService = {
       headers: getAgencyAuthHeaders(),
       body: JSON.stringify({ message }),
     });
+    checkAgency401(response);
     if (!response.ok) {
       const error = await response.json();
       throw new Error(error.message || "Erro ao adicionar mensagem");
@@ -1249,8 +1668,9 @@ export const ticketService = {
     const queryString = params.toString();
     const url = `${getApiUrlValue()}/tickets/admin${queryString ? `?${queryString}` : ""}`;
     const response = await fetch(url, {
-      headers: getAuthHeaders(),
-    });
+headers: getAuthHeaders(),
+      });
+      checkAdmin401(response);
     if (!response.ok) {
       const error = await response.json();
       throw new Error(error.message || "Erro ao buscar tickets");
@@ -1261,8 +1681,9 @@ export const ticketService = {
   // Buscar ticket por ID (admin)
   async getById(id: number) {
     const response = await fetch(`${getApiUrlValue()}/tickets/admin/${id}`, {
-      headers: getAuthHeaders(),
-    });
+headers: getAuthHeaders(),
+      });
+      checkAdmin401(response);
     if (!response.ok) {
       const error = await response.json();
       throw new Error(error.message || "Erro ao buscar ticket");
@@ -1273,8 +1694,9 @@ export const ticketService = {
   // Buscar mensagens de um ticket (admin)
   async getTicketMessages(id: number) {
     const response = await fetch(`${getApiUrlValue()}/tickets/admin/${id}/messages`, {
-      headers: getAuthHeaders(),
-    });
+headers: getAuthHeaders(),
+      });
+      checkAdmin401(response);
     if (!response.ok) {
       const error = await response.json();
       throw new Error(error.message || "Erro ao buscar mensagens");
@@ -1289,6 +1711,7 @@ export const ticketService = {
       headers: getAuthHeaders(),
       body: JSON.stringify({ message }),
     });
+    checkAdmin401(response);
     if (!response.ok) {
       const error = await response.json();
       throw new Error(error.message || "Erro ao adicionar mensagem");
@@ -1300,8 +1723,9 @@ export const ticketService = {
   async closeTicket(ticketId: number) {
     const response = await fetch(`${getApiUrlValue()}/tickets/admin/${ticketId}/close`, {
       method: "POST",
-      headers: getAuthHeaders(),
-    });
+headers: getAuthHeaders(),
+      });
+      checkAdmin401(response);
     if (!response.ok) {
       const error = await response.json();
       throw new Error(error.message || "Erro ao fechar ticket");
@@ -1314,8 +1738,9 @@ export const ticketService = {
 export const dashboardService = {
   async getOrdersSummary() {
     const response = await fetch(`${getApiUrlValue()}/admin/dashboard/orders-summary`, {
-      headers: getAuthHeaders(),
-    });
+headers: getAuthHeaders(),
+      });
+      checkAdmin401(response);
     if (!response.ok) {
       const error = await response.json();
       throw new Error(error.message || "Erro ao buscar resumo de pedidos");
@@ -1326,8 +1751,9 @@ export const dashboardService = {
 
   async getTopAgencyByPoints() {
     const response = await fetch(`${getApiUrlValue()}/admin/dashboard/top-agency-points`, {
-      headers: getAuthHeaders(),
-    });
+headers: getAuthHeaders(),
+      });
+      checkAdmin401(response);
     if (!response.ok) {
       const error = await response.json();
       throw new Error(error.message || "Erro ao buscar agência com mais pontos");
@@ -1338,8 +1764,9 @@ export const dashboardService = {
 
   async getTopAgencyByOrders() {
     const response = await fetch(`${getApiUrlValue()}/admin/dashboard/top-agency-orders`, {
-      headers: getAuthHeaders(),
-    });
+headers: getAuthHeaders(),
+      });
+      checkAdmin401(response);
     if (!response.ok) {
       const error = await response.json();
       throw new Error(error.message || "Erro ao buscar agência com mais pedidos");
@@ -1350,8 +1777,9 @@ export const dashboardService = {
 
   async getAgencyOrders(agencyId: number) {
     const response = await fetch(`${getApiUrlValue()}/admin/dashboard/agency/${agencyId}/orders`, {
-      headers: getAuthHeaders(),
-    });
+headers: getAuthHeaders(),
+      });
+      checkAdmin401(response);
     if (!response.ok) {
       const error = await response.json();
       throw new Error(error.message || "Erro ao buscar pedidos da agência");
@@ -1362,8 +1790,9 @@ export const dashboardService = {
 
   async getTopSuppliers() {
     const response = await fetch(`${getApiUrlValue()}/admin/dashboard/top-suppliers`, {
-      headers: getAuthHeaders(),
-    });
+headers: getAuthHeaders(),
+      });
+      checkAdmin401(response);
     if (!response.ok) {
       const error = await response.json();
       throw new Error(error.message || "Erro ao buscar top fornecedores");
@@ -1374,8 +1803,9 @@ export const dashboardService = {
 
   async getProductsByBranch() {
     const response = await fetch(`${getApiUrlValue()}/admin/dashboard/products-by-branch`, {
-      headers: getAuthHeaders(),
-    });
+headers: getAuthHeaders(),
+      });
+      checkAdmin401(response);
     if (!response.ok) {
       const error = await response.json();
       throw new Error(error.message || "Erro ao buscar produtos por filial");
@@ -1386,8 +1816,9 @@ export const dashboardService = {
 
   async getTopAgenciesWithoutOrders() {
     const response = await fetch(`${getApiUrlValue()}/admin/dashboard/agencies-without-orders`, {
-      headers: getAuthHeaders(),
-    });
+headers: getAuthHeaders(),
+      });
+      checkAdmin401(response);
     if (!response.ok) {
       const error = await response.json();
       throw new Error(error.message || "Erro ao buscar agências sem pedidos");
@@ -1398,11 +1829,25 @@ export const dashboardService = {
 
   async getTopAgenciesNotRegistered() {
     const response = await fetch(`${getApiUrlValue()}/admin/dashboard/agencies-not-registered`, {
-      headers: getAuthHeaders(),
-    });
+headers: getAuthHeaders(),
+      });
+      checkAdmin401(response);
     if (!response.ok) {
       const error = await response.json();
       throw new Error(error.message || "Erro ao buscar agências não cadastradas");
+    }
+    const data = await response.json();
+    return data.data;
+  },
+
+  async getProductsInventory() {
+    const response = await fetch(`${getApiUrlValue()}/admin/dashboard/products-inventory`, {
+      headers: getAuthHeaders(),
+    });
+    checkAdmin401(response);
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.message || "Erro ao buscar estoque dos produtos");
     }
     const data = await response.json();
     return data.data;
@@ -1413,8 +1858,9 @@ export const dashboardService = {
 export const reportService = {
   async getAll() {
     const response = await fetch(`${getApiUrlValue()}/admin/reports/reports`, {
-      headers: getAuthHeaders(),
-    });
+headers: getAuthHeaders(),
+      });
+      checkAdmin401(response);
     if (!response.ok) {
       const error = await response.json();
       throw new Error(error.message || "Erro ao buscar relatórios");
@@ -1425,8 +1871,9 @@ export const reportService = {
 
   async getById(id: number) {
     const response = await fetch(`${getApiUrlValue()}/admin/reports/reports/${id}`, {
-      headers: getAuthHeaders(),
-    });
+headers: getAuthHeaders(),
+      });
+      checkAdmin401(response);
     if (!response.ok) {
       const error = await response.json();
       throw new Error(error.message || "Erro ao buscar relatório");
@@ -1447,6 +1894,7 @@ export const reportService = {
       headers: getAuthHeaders(),
       body: JSON.stringify(report),
     });
+    checkAdmin401(response);
     if (!response.ok) {
       let errorMessage = "Erro ao criar relatório";
       try {
@@ -1475,6 +1923,7 @@ export const reportService = {
       headers: getAuthHeaders(),
       body: JSON.stringify(report),
     });
+    checkAdmin401(response);
     if (!response.ok) {
       let errorMessage = "Erro ao atualizar relatório";
       try {
@@ -1494,8 +1943,9 @@ export const reportService = {
   async delete(id: number) {
     const response = await fetch(`${getApiUrlValue()}/admin/reports/reports/${id}`, {
       method: "DELETE",
-      headers: getAuthHeaders(),
-    });
+headers: getAuthHeaders(),
+      });
+      checkAdmin401(response);
     if (!response.ok) {
       const error = await response.json();
       throw new Error(error.message || "Erro ao deletar relatório");
@@ -1506,8 +1956,9 @@ export const reportService = {
   async execute(id: number) {
     const response = await fetch(`${getApiUrlValue()}/admin/reports/reports/${id}/execute`, {
       method: "POST",
-      headers: getAuthHeaders(),
-    });
+headers: getAuthHeaders(),
+      });
+      checkAdmin401(response);
     if (!response.ok) {
       const error = await response.json();
       throw new Error(error.message || "Erro ao executar relatório");
@@ -1522,6 +1973,7 @@ export const reportService = {
       headers: getAuthHeaders(),
       body: JSON.stringify({ sourceTable, config }),
     });
+    checkAdmin401(response);
     if (!response.ok) {
       const error = await response.json();
       throw new Error(error.message || "Erro ao visualizar preview");
@@ -1532,8 +1984,9 @@ export const reportService = {
 
   async getAvailableFields(table: string) {
     const response = await fetch(`${getApiUrlValue()}/admin/reports/reports/fields?table=${table}`, {
-      headers: getAuthHeaders(),
-    });
+headers: getAuthHeaders(),
+      });
+      checkAdmin401(response);
     if (!response.ok) {
       const error = await response.json();
       throw new Error(error.message || "Erro ao buscar campos disponíveis");
@@ -1547,8 +2000,9 @@ export const reportService = {
 export const dashboardWidgetService = {
   async getAll() {
     const response = await fetch(`${getApiUrlValue()}/admin/reports/widgets`, {
-      headers: getAuthHeaders(),
-    });
+headers: getAuthHeaders(),
+      });
+      checkAdmin401(response);
     if (!response.ok) {
       const error = await response.json();
       throw new Error(error.message || "Erro ao buscar widgets");
@@ -1559,8 +2013,9 @@ export const dashboardWidgetService = {
 
   async getById(id: number) {
     const response = await fetch(`${getApiUrlValue()}/admin/reports/widgets/${id}`, {
-      headers: getAuthHeaders(),
-    });
+headers: getAuthHeaders(),
+      });
+      checkAdmin401(response);
     if (!response.ok) {
       const error = await response.json();
       throw new Error(error.message || "Erro ao buscar widget");
@@ -1575,6 +2030,7 @@ export const dashboardWidgetService = {
       headers: getAuthHeaders(),
       body: JSON.stringify(widget),
     });
+    checkAdmin401(response);
     if (!response.ok) {
       const error = await response.json();
       throw new Error(error.message || "Erro ao criar widget");
@@ -1589,6 +2045,7 @@ export const dashboardWidgetService = {
       headers: getAuthHeaders(),
       body: JSON.stringify(widget),
     });
+    checkAdmin401(response);
     if (!response.ok) {
       const error = await response.json();
       throw new Error(error.message || "Erro ao atualizar widget");
@@ -1600,8 +2057,9 @@ export const dashboardWidgetService = {
   async delete(id: number) {
     const response = await fetch(`${getApiUrlValue()}/admin/reports/widgets/${id}`, {
       method: "DELETE",
-      headers: getAuthHeaders(),
-    });
+headers: getAuthHeaders(),
+      });
+      checkAdmin401(response);
     
     if (!response.ok) {
       let errorMessage = "Erro ao deletar widget";
@@ -1645,8 +2103,9 @@ export const dashboardWidgetService = {
 export const branchService = {
   async getAll() {
     const response = await fetch(`${getApiUrlValue()}/admin/branches`, {
-      headers: getAuthHeaders(),
-    });
+headers: getAuthHeaders(),
+      });
+      checkAdmin401(response);
     if (!response.ok) throw new Error("Erro ao buscar filiais");
     const data = await response.json();
     return data.data || [];
@@ -1654,8 +2113,9 @@ export const branchService = {
 
   async getUniqueBranchNames() {
     const response = await fetch(`${getApiUrlValue()}/admin/branches/unique-names`, {
-      headers: getAuthHeaders(),
-    });
+headers: getAuthHeaders(),
+      });
+      checkAdmin401(response);
     if (!response.ok) throw new Error("Erro ao buscar nomes de filiais");
     const data = await response.json();
     return data.data || [];
@@ -1663,8 +2123,9 @@ export const branchService = {
 
   async getById(id: number) {
     const response = await fetch(`${getApiUrlValue()}/admin/branches/${id}`, {
-      headers: getAuthHeaders(),
-    });
+headers: getAuthHeaders(),
+      });
+      checkAdmin401(response);
     if (!response.ok) throw new Error("Erro ao buscar filial");
     return await response.json();
   },
@@ -1675,6 +2136,7 @@ export const branchService = {
       headers: getAuthHeaders(),
       body: JSON.stringify(data),
     });
+    checkAdmin401(response);
     if (!response.ok) {
       const error = await response.json();
       throw new Error(error.message || "Erro ao criar filial");
@@ -1689,6 +2151,7 @@ export const branchService = {
       headers: getAuthHeaders(),
       body: JSON.stringify(data),
     });
+    checkAdmin401(response);
     if (!response.ok) {
       const error = await response.json();
       throw new Error(error.message || "Erro ao atualizar filial");
@@ -1699,8 +2162,9 @@ export const branchService = {
   async delete(id: number) {
     const response = await fetch(`${getApiUrlValue()}/admin/branches/${id}`, {
       method: "DELETE",
-      headers: getAuthHeaders(),
-    });
+headers: getAuthHeaders(),
+      });
+      checkAdmin401(response);
     if (!response.ok) {
       const error = await response.json();
       throw new Error(error.message || "Erro ao deletar filial");
@@ -1715,19 +2179,21 @@ export const legalDocumentService = {
   async getAll() {
     const response = await fetch(`${getApiUrlValue()}/legal-documents`, {
       method: "GET",
-      headers: getAuthHeaders(),
-    });
+headers: getAuthHeaders(),
+      });
+      checkAdmin401(response);
     if (!response.ok) {
       throw new Error("Erro ao buscar documentos legais");
     }
     return await response.json();
   },
 
-  async getById(id: number) {
+  async getByIdForAgency(id: number) {
     const response = await fetch(`${getApiUrlValue()}/legal-documents/agency/${id}`, {
       method: "GET",
       headers: getAgencyAuthHeaders(),
     });
+    checkAgency401(response);
     if (!response.ok) {
       throw new Error("Erro ao buscar documento legal");
     }
@@ -1737,8 +2203,9 @@ export const legalDocumentService = {
   async getByType(type: 'TERMS' | 'PRIVACY' | 'CAMPAIGN_RULES') {
     const response = await fetch(`${getApiUrlValue()}/legal-documents/type/${type}`, {
       method: "GET",
-      headers: getAuthHeaders(),
-    });
+headers: getAuthHeaders(),
+      });
+      checkAdmin401(response);
     if (!response.ok) {
       throw new Error("Erro ao buscar documentos legais");
     }
@@ -1748,8 +2215,9 @@ export const legalDocumentService = {
   async getById(id: number) {
     const response = await fetch(`${getApiUrlValue()}/legal-documents/${id}`, {
       method: "GET",
-      headers: getAuthHeaders(),
-    });
+headers: getAuthHeaders(),
+      });
+      checkAdmin401(response);
     if (!response.ok) {
       throw new Error("Erro ao buscar documento legal");
     }
@@ -1762,6 +2230,7 @@ export const legalDocumentService = {
       headers: getAuthHeaders(),
       body: JSON.stringify(data),
     });
+    checkAdmin401(response);
     if (!response.ok) {
       const error = await response.json();
       throw new Error(error.message || "Erro ao criar documento legal");
@@ -1775,6 +2244,7 @@ export const legalDocumentService = {
       headers: getAuthHeaders(),
       body: JSON.stringify(data),
     });
+    checkAdmin401(response);
     if (!response.ok) {
       const error = await response.json();
       throw new Error(error.message || "Erro ao atualizar documento legal");
@@ -1785,8 +2255,9 @@ export const legalDocumentService = {
   async activate(id: number) {
     const response = await fetch(`${getApiUrlValue()}/legal-documents/${id}/activate`, {
       method: "POST",
-      headers: getAuthHeaders(),
-    });
+headers: getAuthHeaders(),
+      });
+      checkAdmin401(response);
     if (!response.ok) {
       const error = await response.json();
       throw new Error(error.message || "Erro ao ativar documento legal");
@@ -1838,6 +2309,7 @@ export const agencyLegalDocumentService = {
       method: "GET",
       headers: getAgencyAuthHeaders(),
     });
+    checkAgency401(response);
     if (!response.ok) {
       throw new Error("Erro ao buscar documentos pendentes");
     }
@@ -1849,6 +2321,7 @@ export const agencyLegalDocumentService = {
       method: "GET",
       headers: getAgencyAuthHeaders(),
     });
+    checkAgency401(response);
     if (!response.ok) {
       throw new Error("Erro ao buscar documentos aceitos");
     }
@@ -1861,6 +2334,7 @@ export const agencyLegalDocumentService = {
       headers: getAgencyAuthHeaders(),
       body: JSON.stringify({ legal_document_id: legalDocumentId }),
     });
+    checkAgency401(response);
     if (!response.ok) {
       const error = await response.json();
       throw new Error(error.message || "Erro ao aceitar documento");
@@ -1872,8 +2346,9 @@ export const agencyLegalDocumentService = {
 export const executiveNotificationEmailService = {
   async getByExecutiveId(executiveId: number) {
     const response = await fetch(`${getApiUrlValue()}/admin/executive-notification-emails/executive/${executiveId}`, {
-      headers: getAuthHeaders(),
-    });
+headers: getAuthHeaders(),
+      });
+      checkAdmin401(response);
     if (!response.ok) throw new Error("Erro ao buscar emails de notificação");
     const data = await response.json();
     return data.data || [];
@@ -1881,8 +2356,9 @@ export const executiveNotificationEmailService = {
 
   async getById(id: number) {
     const response = await fetch(`${getApiUrlValue()}/admin/executive-notification-emails/${id}`, {
-      headers: getAuthHeaders(),
-    });
+headers: getAuthHeaders(),
+      });
+      checkAdmin401(response);
     if (!response.ok) throw new Error("Erro ao buscar email de notificação");
     return await response.json();
   },
@@ -1893,6 +2369,7 @@ export const executiveNotificationEmailService = {
       headers: getAuthHeaders(),
       body: JSON.stringify(data),
     });
+    checkAdmin401(response);
     if (!response.ok) {
       const error = await response.json();
       throw new Error(error.message || "Erro ao criar email de notificação");
@@ -1906,6 +2383,7 @@ export const executiveNotificationEmailService = {
       headers: getAuthHeaders(),
       body: JSON.stringify(data),
     });
+    checkAdmin401(response);
     if (!response.ok) {
       const error = await response.json();
       throw new Error(error.message || "Erro ao atualizar email de notificação");
@@ -1916,8 +2394,9 @@ export const executiveNotificationEmailService = {
   async delete(id: number) {
     const response = await fetch(`${getApiUrlValue()}/admin/executive-notification-emails/${id}`, {
       method: "DELETE",
-      headers: getAuthHeaders(),
-    });
+headers: getAuthHeaders(),
+      });
+      checkAdmin401(response);
     if (!response.ok) {
       const error = await response.json();
       throw new Error(error.message || "Erro ao deletar email de notificação");
@@ -1930,8 +2409,9 @@ export const executiveNotificationEmailService = {
 export const sizeChartService = {
   async getAll() {
     const response = await fetch(`${getApiUrlValue()}/size-charts`, {
-      headers: getAuthHeaders(),
-    });
+headers: getAuthHeaders(),
+      });
+      checkAdmin401(response);
     if (!response.ok) {
       const error = await response.json();
       throw new Error(error.message || "Erro ao buscar grades de tamanho");
@@ -1952,8 +2432,9 @@ export const sizeChartService = {
 
   async getById(id: number) {
     const response = await fetch(`${getApiUrlValue()}/size-charts/${id}`, {
-      headers: getAuthHeaders(),
-    });
+headers: getAuthHeaders(),
+      });
+      checkAdmin401(response);
     if (!response.ok) {
       const error = await response.json();
       throw new Error(error.message || "Erro ao buscar grade de tamanho");
@@ -1980,6 +2461,7 @@ export const sizeChartService = {
       headers: getAuthHeaders(),
       body: JSON.stringify(data),
     });
+    checkAdmin401(response);
     if (!response.ok) {
       const error = await response.json();
       throw new Error(error.message || "Erro ao criar grade de tamanho");
@@ -2006,6 +2488,7 @@ export const sizeChartService = {
       headers: getAuthHeaders(),
       body: JSON.stringify(data),
     });
+    checkAdmin401(response);
     if (!response.ok) {
       const error = await response.json();
       throw new Error(error.message || "Erro ao atualizar grade de tamanho");
@@ -2016,8 +2499,9 @@ export const sizeChartService = {
   async delete(id: number) {
     const response = await fetch(`${getApiUrlValue()}/size-charts/${id}`, {
       method: "DELETE",
-      headers: getAuthHeaders(),
-    });
+headers: getAuthHeaders(),
+      });
+      checkAdmin401(response);
     if (!response.ok) {
       const error = await response.json();
       throw new Error(error.message || "Erro ao deletar grade de tamanho");
@@ -2049,8 +2533,9 @@ export const sizeChartService = {
 export const backupService = {
   async getAll() {
     const response = await fetch(`${getApiUrlValue()}/admin/backups`, {
-      headers: getAuthHeaders(),
-    });
+headers: getAuthHeaders(),
+      });
+      checkAdmin401(response);
     if (!response.ok) {
       const error = await response.json();
       throw new Error(error.message || "Erro ao buscar backups");
@@ -2061,8 +2546,9 @@ export const backupService = {
 
   async getById(id: number) {
     const response = await fetch(`${getApiUrlValue()}/admin/backups/${id}`, {
-      headers: getAuthHeaders(),
-    });
+headers: getAuthHeaders(),
+      });
+      checkAdmin401(response);
     if (!response.ok) {
       const error = await response.json();
       throw new Error(error.message || "Erro ao buscar backup");
@@ -2074,8 +2560,9 @@ export const backupService = {
   async create() {
     const response = await fetch(`${getApiUrlValue()}/admin/backups/create`, {
       method: "POST",
-      headers: getAuthHeaders(),
-    });
+headers: getAuthHeaders(),
+      });
+      checkAdmin401(response);
     if (!response.ok) {
       const error = await response.json();
       throw new Error(error.message || "Erro ao criar backup");
@@ -2100,8 +2587,9 @@ export const backupService = {
   async delete(id: number) {
     const response = await fetch(`${getApiUrlValue()}/admin/backups/${id}`, {
       method: "DELETE",
-      headers: getAuthHeaders(),
-    });
+headers: getAuthHeaders(),
+      });
+      checkAdmin401(response);
     if (!response.ok) {
       const error = await response.json();
       throw new Error(error.message || "Erro ao deletar backup");
@@ -2111,8 +2599,9 @@ export const backupService = {
 
   async validate(id: number) {
     const response = await fetch(`${getApiUrlValue()}/admin/backups/${id}/validate`, {
-      headers: getAuthHeaders(),
-    });
+headers: getAuthHeaders(),
+      });
+      checkAdmin401(response);
     if (!response.ok) {
       const error = await response.json();
       throw new Error(error.message || "Erro ao validar backup");

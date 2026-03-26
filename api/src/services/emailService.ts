@@ -428,6 +428,65 @@ Este é um email automático de teste. Você pode ignorá-lo com segurança.
         console.log(`Order notification email sent to ${activeEmails.length} recipient(s) for order #${orderId}`);
     },
 
+    /**
+     * Envia e-mail para a agência informando o cancelamento do pedido.
+     * message: conteúdo em HTML (motivo/mensagem editável).
+     */
+    async sendOrderCancellationEmail(
+        toEmail: string,
+        agencyName: string,
+        orderId: number,
+        totalPoints: number,
+        message: string
+    ): Promise<void> {
+        const smtpConfig = await this.getActiveSmtpConfig();
+        if (!smtpConfig) {
+            throw new Error('SMTP configuration not found. Please configure SMTP settings.');
+        }
+        const decryptedPassword = decrypt(smtpConfig.password_encrypted);
+        const transporter = nodemailer.createTransport({
+            host: smtpConfig.host,
+            port: smtpConfig.port,
+            secure: smtpConfig.secure,
+            auth: { user: smtpConfig.user, pass: decryptedPassword },
+            connectionTimeout: 10000,
+            greetingTimeout: 10000,
+            socketTimeout: 10000
+        });
+        const mailOptions = {
+            from: `"${smtpConfig.from_name}" <${smtpConfig.from_email}>`,
+            to: toEmail,
+            subject: `Pedido #${orderId} cancelado`,
+            html: `
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <meta charset="utf-8">
+                    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                    <title>Pedido cancelado</title>
+                </head>
+                <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
+                    <div style="background: #dc2626; color: white; padding: 24px; text-align: center; border-radius: 10px 10px 0 0;">
+                        <h1 style="margin: 0; font-size: 24px;">Pedido #${orderId} cancelado</h1>
+                    </div>
+                    <div style="background: #f9f9f9; padding: 24px; border-radius: 0 0 10px 10px; border: 1px solid #e0e0e0;">
+                        <p style="font-size: 16px;">Olá, ${agencyName}</p>
+                        <p style="font-size: 16px;">Informamos que o pedido <strong>#${orderId}</strong> (total de <strong>${totalPoints} pontos</strong>) foi cancelado.</p>
+                        <div style="background: white; padding: 16px; border-radius: 8px; margin: 16px 0; border-left: 4px solid #dc2626;">
+                            <p style="margin: 0 0 8px 0; font-size: 14px; color: #666;">Motivo / mensagem:</p>
+                            <div style="font-size: 15px;">${message}</div>
+                        </div>
+                        <p style="font-size: 14px; color: #666;">Os pontos referentes a este pedido foram devolvidos ao saldo da agência e poderão ser utilizados em novas compras.</p>
+                        <p style="font-size: 14px; color: #666; margin-top: 24px;">Este é um e-mail automático. Em caso de dúvidas, entre em contato com o suporte.</p>
+                    </div>
+                </body>
+                </html>
+            `
+        };
+        await transporter.sendMail(mailOptions);
+        console.log(`Order cancellation email sent to ${toEmail} for order #${orderId}`);
+    },
+
     // Enviar email de notificação de novo pedido para executivo
     async sendExecutiveOrderNotification(
         orderId: number,
@@ -558,8 +617,8 @@ Este é um email automático de teste. Você pode ignorá-lo com segurança.
         });
 
         // Construir URL do ticket
-        const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
-        const ticketUrl = `${frontendUrl}/tickets/${ticketId}`;
+        const { getPublicFrontendUrl } = await import('../config/frontendUrl');
+        const ticketUrl = `${getPublicFrontendUrl()}/tickets/${ticketId}`;
 
         // Conteúdo do email
         const mailOptions = {
@@ -657,8 +716,8 @@ Este é um email automático de teste. Você pode ignorá-lo com segurança.
         });
 
         // Construir URL do ticket
-        const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
-        const ticketUrl = `${frontendUrl}/tickets/${ticketId}`;
+        const { getPublicFrontendUrl } = await import('../config/frontendUrl');
+        const ticketUrl = `${getPublicFrontendUrl()}/tickets/${ticketId}`;
 
         // Conteúdo do email
         const mailOptions = {

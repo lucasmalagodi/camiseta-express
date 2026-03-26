@@ -18,6 +18,11 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Tabs as DocumentTabs, TabsContent as DocumentTabsContent, TabsList as DocumentTabsList, TabsTrigger as DocumentTabsTrigger } from "@/components/ui/tabs";
+import { isValidCnpj } from "@/lib/utils";
+
+// Flag para controlar se o cadastro de agência aceita CPF também.
+// Para voltar a aceitar CPF, basta trocar para "true".
+const ALLOW_CPF_IN_AGENCY_REGISTRATION = false;
 
 const Login = () => {
   const navigate = useNavigate();
@@ -249,13 +254,19 @@ const Login = () => {
         setRequiresVerification(true);
         toast.success(result.message || "Código de verificação enviado por email!");
       } else {
-        toast.warning(result.message || "Email ou senha incorretos!", {
-          style: {
-            backgroundColor: "#fef3c7",
-            color: "#92400e",
-            border: "1px solid #fbbf24",
-          },
-        });
+        const msg = result.message || "Email ou senha incorretos.";
+        const isInternalError = msg.includes("Erro interno") || msg.includes("suporte");
+        if (isInternalError) {
+          toast.error("Erro interno. Entre em contato com o suporte.");
+        } else {
+          toast.warning(msg, {
+            style: {
+              backgroundColor: "#fef3c7",
+              color: "#92400e",
+              border: "1px solid #fbbf24",
+            },
+          });
+        }
       }
     } catch (error) {
       console.error("Erro no login:", error);
@@ -282,14 +293,34 @@ const Login = () => {
     setIsVerifying(false);
   };
 
+  const documentLabel = ALLOW_CPF_IN_AGENCY_REGISTRATION ? "CPF/CNPJ" : "CNPJ";
+
   const handleValidateCnpj = async (e?: React.FormEvent) => {
     if (e) {
       e.preventDefault();
     }
 
     if (!registerData.cnpj.trim()) {
-      setErrorMessage("CPF/CNPJ é obrigatório");
+      setErrorMessage(`${documentLabel} é obrigatório`);
       return;
+    }
+
+    const normalizedCnpj = registerData.cnpj.replace(/\D/g, '');
+
+    // Quando só CNPJ é permitido, bloquear imediatamente qualquer valor que não tenha 14 dígitos
+    if (!ALLOW_CPF_IN_AGENCY_REGISTRATION) {
+      if (normalizedCnpj.length !== 14) {
+        setErrorMessage("CNPJ inválido. Deve ter 14 dígitos");
+        toast.error("CNPJ inválido. Deve ter 14 dígitos");
+        return;
+      }
+
+      // Validação de CNPJ usando dígitos verificadores para evitar CNPJ "fake"
+      if (!isValidCnpj(normalizedCnpj)) {
+        setErrorMessage("CNPJ inválido. Verifique os números digitados.");
+        toast.error("CNPJ inválido. Verifique os números digitados.");
+        return;
+      }
     }
 
     setIsValidatingCnpj(true);
@@ -297,15 +328,14 @@ const Login = () => {
 
     try {
       // Normalizar CNPJ (remover formatação) antes de validar
-      const normalizedCnpj = registerData.cnpj.replace(/\D/g, '');
       const result = await agencyRegistrationService.validateCnpj(normalizedCnpj);
       
       // Verificar se agência já existe
       if (result.alreadyExists) {
         setCnpjValidated(false);
         setIsEligible(false);
-        setErrorMessage("Este CPF/CNPJ já está cadastrado. Faça login para acessar sua conta.");
-        toast.error("Este CPF/CNPJ já está cadastrado");
+        setErrorMessage(`Este ${documentLabel} já está cadastrado. Faça login para acessar sua conta.`);
+        toast.error(`Este ${documentLabel} já está cadastrado`);
         return;
       }
       
@@ -320,7 +350,7 @@ const Login = () => {
           setRegisterData({ ...registerData, name: result.agencyName });
         }
         
-        toast.success("CPF/CNPJ válido! Preencha os dados para continuar.");
+        toast.success(`${documentLabel} válido! Preencha os dados para continuar.`);
       } else {
         // Não encontrado na campanha, mas permite cadastro mesmo assim
         setIsEligible(false);
@@ -328,8 +358,8 @@ const Login = () => {
         toast.info("Suas vendas ainda não foram computadas na campanha. Faça seu cadastro normalmente — assim que a pontuação for atualizada, seus pontos aparecerão automaticamente na sua conta.");
       }
     } catch (error: any) {
-      setErrorMessage("Erro ao validar CPF/CNPJ. Tente novamente.");
-      toast.error("Erro ao validar CPF/CNPJ");
+      setErrorMessage(`Erro ao validar ${documentLabel}. Tente novamente.`);
+      toast.error(`Erro ao validar ${documentLabel}`);
       console.error(error);
     } finally {
       setIsValidatingCnpj(false);
@@ -383,39 +413,40 @@ const Login = () => {
     }
   };
 
-  // Função para aplicar máscara de CPF/CNPJ
+  // Função para aplicar máscara de CPF/CNPJ ou apenas CNPJ, conforme flag
   const formatCnpj = (value: string): string => {
-    // Remove tudo que não é número
     const numbers = value.replace(/\D/g, '');
+
+    if (ALLOW_CPF_IN_AGENCY_REGISTRATION) {
+      // Aceita CPF (11) ou CNPJ (14)
+      if (numbers.length <= 11) {
+        const limitedNumbers = numbers.slice(0, 11);
+        
+        if (limitedNumbers.length <= 3) {
+          return limitedNumbers;
+        } else if (limitedNumbers.length <= 6) {
+          return `${limitedNumbers.slice(0, 3)}.${limitedNumbers.slice(3)}`;
+        } else if (limitedNumbers.length <= 9) {
+          return `${limitedNumbers.slice(0, 3)}.${limitedNumbers.slice(3, 6)}.${limitedNumbers.slice(6)}`;
+        } else {
+          return `${limitedNumbers.slice(0, 3)}.${limitedNumbers.slice(3, 6)}.${limitedNumbers.slice(6, 9)}-${limitedNumbers.slice(9, 11)}`;
+        }
+      }
+    }
+
+    // Sempre que não estiver aceitando CPF, ou se o usuário continuar digitando, aplica máscara de CNPJ
+    const limitedNumbers = numbers.slice(0, 14);
     
-    // Se tiver 11 dígitos ou menos, aplica máscara de CPF: 999.999.999-99
-    if (numbers.length <= 11) {
-      const limitedNumbers = numbers.slice(0, 11);
-      
-      if (limitedNumbers.length <= 3) {
-        return limitedNumbers;
-      } else if (limitedNumbers.length <= 6) {
-        return `${limitedNumbers.slice(0, 3)}.${limitedNumbers.slice(3)}`;
-      } else if (limitedNumbers.length <= 9) {
-        return `${limitedNumbers.slice(0, 3)}.${limitedNumbers.slice(3, 6)}.${limitedNumbers.slice(6)}`;
-      } else {
-        return `${limitedNumbers.slice(0, 3)}.${limitedNumbers.slice(3, 6)}.${limitedNumbers.slice(6, 9)}-${limitedNumbers.slice(9, 11)}`;
-      }
+    if (limitedNumbers.length <= 2) {
+      return limitedNumbers;
+    } else if (limitedNumbers.length <= 5) {
+      return `${limitedNumbers.slice(0, 2)}.${limitedNumbers.slice(2)}`;
+    } else if (limitedNumbers.length <= 8) {
+      return `${limitedNumbers.slice(0, 2)}.${limitedNumbers.slice(2, 5)}.${limitedNumbers.slice(5)}`;
+    } else if (limitedNumbers.length <= 12) {
+      return `${limitedNumbers.slice(0, 2)}.${limitedNumbers.slice(2, 5)}.${limitedNumbers.slice(5, 8)}/${limitedNumbers.slice(8)}`;
     } else {
-      // Se tiver mais de 11 dígitos, aplica máscara de CNPJ: 00.000.000/0000-00
-      const limitedNumbers = numbers.slice(0, 14);
-      
-      if (limitedNumbers.length <= 2) {
-        return limitedNumbers;
-      } else if (limitedNumbers.length <= 5) {
-        return `${limitedNumbers.slice(0, 2)}.${limitedNumbers.slice(2)}`;
-      } else if (limitedNumbers.length <= 8) {
-        return `${limitedNumbers.slice(0, 2)}.${limitedNumbers.slice(2, 5)}.${limitedNumbers.slice(5)}`;
-      } else if (limitedNumbers.length <= 12) {
-        return `${limitedNumbers.slice(0, 2)}.${limitedNumbers.slice(2, 5)}.${limitedNumbers.slice(5, 8)}/${limitedNumbers.slice(8)}`;
-      } else {
-        return `${limitedNumbers.slice(0, 2)}.${limitedNumbers.slice(2, 5)}.${limitedNumbers.slice(5, 8)}/${limitedNumbers.slice(8, 12)}-${limitedNumbers.slice(12, 14)}`;
-      }
+      return `${limitedNumbers.slice(0, 2)}.${limitedNumbers.slice(2, 5)}.${limitedNumbers.slice(5, 8)}/${limitedNumbers.slice(8, 12)}-${limitedNumbers.slice(12, 14)}`;
     }
   };
 
@@ -484,17 +515,24 @@ const Login = () => {
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    // Validar formato do CNPJ, mas não bloquear se não encontrar na campanha
+    // Validar formato do documento (apenas CNPJ por padrão)
     if (!registerData.cnpj.trim()) {
-      toast.error("CPF/CNPJ é obrigatório");
+      toast.error(`${documentLabel} é obrigatório`);
       return;
     }
 
-    // Validar formato básico do CNPJ (11 ou 14 dígitos)
     const normalizedCnpj = registerData.cnpj.replace(/\D/g, '');
-    if (normalizedCnpj.length !== 11 && normalizedCnpj.length !== 14) {
-      toast.error("CPF/CNPJ inválido. CPF deve ter 11 dígitos e CNPJ deve ter 14 dígitos");
-      return;
+
+    if (ALLOW_CPF_IN_AGENCY_REGISTRATION) {
+      if (normalizedCnpj.length !== 11 && normalizedCnpj.length !== 14) {
+        toast.error("CPF/CNPJ inválido. CPF deve ter 11 dígitos e CNPJ deve ter 14 dígitos");
+        return;
+      }
+    } else {
+      if (normalizedCnpj.length !== 14) {
+        toast.error("CNPJ inválido. Deve ter 14 dígitos");
+        return;
+      }
     }
 
     if (registerData.password !== registerData.confirmPassword) {
@@ -573,7 +611,7 @@ const Login = () => {
       if (errorMsg.includes("já cadastrada") || errorMsg.includes("already exists")) {
         toast.error("Agência já cadastrada");
       } else if (errorMsg.includes("não autorizado") || errorMsg.includes("no imported points")) {
-        toast.error("CPF/CNPJ não autorizado para esta campanha");
+        toast.error(`${documentLabel} não autorizado para esta campanha`);
       } else {
         toast.error(errorMsg);
       }
@@ -772,12 +810,12 @@ const Login = () => {
               
               {/* Step 1: CNPJ Validation */}
               <div className="space-y-2">
-                <Label htmlFor="register-cnpj">CPF/CNPJ</Label>
+                <Label htmlFor="register-cnpj">{documentLabel}</Label>
                 <div className="flex gap-2">
                   <Input
                     id="register-cnpj"
                     type="text"
-                    placeholder="999.999.999-99 ou 00.000.000/0000-00"
+                    placeholder={ALLOW_CPF_IN_AGENCY_REGISTRATION ? "999.999.999-99 ou 00.000.000/0000-00" : "00.000.000/0000-00"}
                     value={registerData.cnpj}
                     onChange={handleCnpjChange}
                     onBlur={handleCnpjBlur}
@@ -907,6 +945,15 @@ const Login = () => {
                         type="text"
                         placeholder="Apto, bloco, etc."
                         value={registerData.address.complement}
+                        onChange={(e) =>
+                          setRegisterData({
+                            ...registerData,
+                            address: {
+                              ...registerData.address,
+                              complement: e.target.value,
+                            },
+                          })
+                        }
                       />
                     </div>
 
@@ -1066,8 +1113,7 @@ const Login = () => {
                 disabled={
                   isLoading ||
                   isValidatingCnpj ||
-                  !registerData.cnpj.trim() ||
-                  (cnpjValidated && (!termsAccepted || !registerData.name || !registerData.email || !registerData.password || !registerData.phone || !registerData.address.cep || !registerData.address.street || !registerData.address.number || !registerData.address.neighborhood || !registerData.address.city || !registerData.address.state))
+                  !registerData.cnpj.trim()
                 }
               >
                 {isValidatingCnpj ? (

@@ -492,37 +492,35 @@ exports.agencyPointsImportService = {
                                     executiveUpdated: !currentExecutiveName && newExecutiveName ? newExecutiveName : null
                                 });
                             }
-                            // Buscar import items deste CNPJ nesta importação que ainda não estão no ledger
-                            const importItems = await (0, db_1.query)(`SELECT api.id, api.import_id, api.points 
+                            // Calcular total de pontos desta importação para este CNPJ
+                            const totalPointsResult = await (0, db_1.query)(`SELECT COALESCE(SUM(points), 0) as totalPoints
                                  FROM agency_points_import_items api
-                                 LEFT JOIN agency_points_ledger apl ON (
-                                     apl.agency_id = ? 
-                                     AND apl.source_type = 'IMPORT' 
-                                     AND apl.source_id = api.import_id
-                                     AND apl.points = api.points
-                                 )
                                  WHERE REPLACE(REPLACE(REPLACE(REPLACE(api.cnpj, '.', ''), '/', ''), '-', ''), ' ', '') = ?
-                                 AND api.import_id = ?
-                                 AND apl.id IS NULL`, [agencyId, normalizedCnpj, importId]);
-                            // Criar ledger entries para cada import item que ainda não está no ledger
-                            if (Array.isArray(importItems) && importItems.length > 0) {
-                                for (const item of importItems) {
-                                    // Verificar se já existe entrada no ledger para evitar duplicatas
-                                    const existingLedger = await (0, db_1.query)(`SELECT id FROM agency_points_ledger 
-                                         WHERE agency_id = ? 
-                                         AND source_type = 'IMPORT' 
-                                         AND source_id = ? 
-                                         AND points = ?`, [agencyId, item.import_id, item.points]);
-                                    if (!Array.isArray(existingLedger) || existingLedger.length === 0) {
-                                        await (0, db_1.query)('INSERT INTO agency_points_ledger (agency_id, source_type, source_id, points, description, created_at) VALUES (?, ?, ?, ?, ?, NOW())', [
-                                            agencyId,
-                                            'IMPORT',
-                                            item.import_id,
-                                            item.points,
-                                            `Points import from import ${item.import_id}`
-                                        ]);
-                                        syncedCount++;
-                                    }
+                                 AND api.import_id = ?`, [normalizedCnpj, importId]);
+                            const totalPoints = Array.isArray(totalPointsResult) && totalPointsResult.length > 0
+                                ? Number(totalPointsResult[0].totalPoints) || 0
+                                : 0;
+                            if (totalPoints > 0) {
+                                // Verificar quanto já foi lançado no ledger para este agency+import
+                                const existingLedgerResult = await (0, db_1.query)(`SELECT COALESCE(SUM(points), 0) as currentPoints
+                                     FROM agency_points_ledger
+                                     WHERE agency_id = ?
+                                     AND source_type = 'IMPORT'
+                                     AND source_id = ?`, [agencyId, importId]);
+                                const currentPoints = Array.isArray(existingLedgerResult) && existingLedgerResult.length > 0
+                                    ? Number(existingLedgerResult[0].currentPoints) || 0
+                                    : 0;
+                                // Se já lançamos tudo, não fazer nada (idempotente)
+                                if (currentPoints < totalPoints) {
+                                    const diff = totalPoints - currentPoints;
+                                    await (0, db_1.query)('INSERT INTO agency_points_ledger (agency_id, source_type, source_id, points, description, created_at) VALUES (?, ?, ?, ?, ?, NOW())', [
+                                        agencyId,
+                                        'IMPORT',
+                                        importId,
+                                        diff,
+                                        `Points import from import ${importId}`
+                                    ]);
+                                    syncedCount++;
                                 }
                             }
                         }
@@ -598,5 +596,64 @@ exports.agencyPointsImportService = {
         await (0, db_1.query)('DELETE FROM agency_points_import_items WHERE import_id = ?', [importId]);
         // Deletar a importação
         await (0, db_1.query)('DELETE FROM agency_points_imports WHERE id = ?', [importId]);
+    },
+    /**
+     * Re-sincroniza uma importação específica com o ledger.
+     * Útil para corrigir importações antigas sem duplicar pontos já lançados.
+     */
+    async resyncWithLedger(importId) {
+        // Buscar CNPJs únicos desta importação
+        const cnpjResults = await (0, db_1.query)(`SELECT DISTINCT REPLACE(REPLACE(REPLACE(REPLACE(cnpj, '.', ''), '/', ''), '-', ''), ' ', '') as normalized_cnpj
+             FROM agency_points_import_items 
+             WHERE import_id = ?`, [importId]);
+        if (!Array.isArray(cnpjResults) || cnpjResults.length === 0) {
+            return { syncedAgencies: 0 };
+        }
+        let syncedCount = 0;
+        for (const cnpjRow of cnpjResults) {
+            const normalizedCnpj = cnpjRow.normalized_cnpj;
+            // Buscar agência ativa com este CNPJ
+            const agencyResults = await (0, db_1.query)(`SELECT id FROM agencies 
+                 WHERE active = true
+                 AND REPLACE(REPLACE(REPLACE(REPLACE(cnpj, '.', ''), '/', ''), '-', ''), ' ', '') = ?`, [normalizedCnpj]);
+            if (!Array.isArray(agencyResults) || agencyResults.length === 0) {
+                continue;
+            }
+            const agencyId = agencyResults[0].id;
+            // Calcular total de pontos desta importação para este CNPJ
+            const totalPointsResult = await (0, db_1.query)(`SELECT COALESCE(SUM(points), 0) as totalPoints
+                 FROM agency_points_import_items api
+                 WHERE REPLACE(REPLACE(REPLACE(REPLACE(api.cnpj, '.', ''), '/', ''), '-', ''), ' ', '') = ?
+                 AND api.import_id = ?`, [normalizedCnpj, importId]);
+            const totalPoints = Array.isArray(totalPointsResult) && totalPointsResult.length > 0
+                ? Number(totalPointsResult[0].totalPoints) || 0
+                : 0;
+            if (totalPoints <= 0) {
+                continue;
+            }
+            // Verificar quanto já foi lançado no ledger para este agency+import (apenas IMPORT)
+            const existingLedgerResult = await (0, db_1.query)(`SELECT COALESCE(SUM(points), 0) as currentPoints
+                 FROM agency_points_ledger
+                 WHERE agency_id = ?
+                 AND source_type = 'IMPORT'
+                 AND source_id = ?`, [agencyId, importId]);
+            const currentPoints = Array.isArray(existingLedgerResult) && existingLedgerResult.length > 0
+                ? Number(existingLedgerResult[0].currentPoints) || 0
+                : 0;
+            // Se já lançamos tudo, não fazer nada (idempotente)
+            if (currentPoints >= totalPoints) {
+                continue;
+            }
+            const diff = totalPoints - currentPoints;
+            await (0, db_1.query)('INSERT INTO agency_points_ledger (agency_id, source_type, source_id, points, description, created_at) VALUES (?, ?, ?, ?, ?, NOW())', [
+                agencyId,
+                'IMPORT',
+                importId,
+                diff,
+                `Resync points import from import ${importId}`
+            ]);
+            syncedCount++;
+        }
+        return { syncedAgencies: syncedCount };
     }
 };

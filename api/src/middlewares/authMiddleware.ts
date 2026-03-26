@@ -16,24 +16,24 @@ declare global {
     }
 }
 
-export const protect = async (req: Request, res: Response, next: NextFunction) => {
-    let token;
+/** Retorna JWT_SECRET; em produção exige que esteja definido (nunca usar fallback). */
+export const getJwtSecret = (): string => {
+    const secret = process.env.JWT_SECRET;
+    if (process.env.NODE_ENV === 'production' && !secret) {
+        throw new Error('JWT_SECRET deve estar definido em produção');
+    }
+    return secret || 'secret';
+};
 
+export const protect = async (req: Request, res: Response, next: NextFunction) => {
     if (
         req.headers.authorization &&
         req.headers.authorization.startsWith('Bearer')
     ) {
         try {
-            // Get token from header
-            token = req.headers.authorization.split(' ')[1];
+            const token = req.headers.authorization.split(' ')[1];
+            const decoded = jwt.verify(token, getJwtSecret()) as UserPayload;
 
-            // Verify token using JWT
-            const decoded = jwt.verify(
-                token,
-                process.env.JWT_SECRET || 'secret'
-            ) as UserPayload;
-
-            // Add user to request
             req.user = {
                 id: decoded.id,
                 email: decoded.email,
@@ -51,28 +51,18 @@ export const protect = async (req: Request, res: Response, next: NextFunction) =
 };
 
 export const protectAdmin = async (req: Request, res: Response, next: NextFunction) => {
-    let token;
-
     if (
         req.headers.authorization &&
         req.headers.authorization.startsWith('Bearer')
     ) {
         try {
-            // Get token from header
-            token = req.headers.authorization.split(' ')[1];
+            const token = req.headers.authorization.split(' ')[1];
+            const decoded = jwt.verify(token, getJwtSecret()) as UserPayload;
 
-            // Verify token using JWT
-            const decoded = jwt.verify(
-                token,
-                process.env.JWT_SECRET || 'secret'
-            ) as UserPayload;
-
-            // Verificar se é admin
             if (decoded.role !== 'admin') {
                 return res.status(403).json({ message: 'Acesso negado. Apenas administradores.' });
             }
 
-            // Add user to request
             req.user = {
                 id: decoded.id,
                 email: decoded.email,

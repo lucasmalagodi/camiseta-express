@@ -86,45 +86,35 @@ exports.orderService = {
                 // Distribuir unidades entre os lotes conforme quantidade_compra
                 let remainingQuantity = item.quantity;
                 let priceIndex = 0;
-                // Contar quantas unidades a agência já comprou deste produto (total)
-                const [totalUnitsPurchasedResults] = await connection.execute(`SELECT COALESCE(SUM(oi.quantity), 0) as total 
-                     FROM order_items oi 
-                     INNER JOIN orders o ON oi.order_id = o.id 
-                     WHERE oi.product_id = ? AND o.agency_id = ? AND o.status = 'CONFIRMED'`, [item.productId, agencyId]);
-                const totalUnitsPurchased = Array.isArray(totalUnitsPurchasedResults) && totalUnitsPurchasedResults.length > 0
-                    ? Number(totalUnitsPurchasedResults[0].total)
-                    : 0;
-                // Distribuir unidades pelos lotes
+                // Distribuir unidades pelos lotes (cada lote tem seu limite; mesmo produto outra variante usa próximo lote)
                 while (remainingQuantity > 0 && priceIndex < activePrices.length) {
                     const price = activePrices[priceIndex];
                     const quantidadeCompra = Number(price.quantidadeCompra) || 0;
                     let unitsForThisLot = 0;
+                    // Contagem por lote (pedidos confirmados + mesmo pedido) para qualquer quantidade_compra
+                    const [lotUnitsPurchasedResults] = await connection.execute(`SELECT COALESCE(SUM(oi.quantity), 0) as total 
+                         FROM order_items oi 
+                         INNER JOIN orders o ON oi.order_id = o.id 
+                         WHERE oi.product_id = ? AND oi.product_price_id = ? AND o.agency_id = ? AND o.status = 'CONFIRMED'`, [item.productId, price.id, agencyId]);
+                    const lotFromDb = Array.isArray(lotUnitsPurchasedResults) && lotUnitsPurchasedResults.length > 0
+                        ? Number(lotUnitsPurchasedResults[0].total)
+                        : 0;
+                    const lotUnitsAlreadyInThisOrder = orderItemsData
+                        .filter((x) => x.productId === item.productId && x.productPriceId === price.id)
+                        .reduce((sum, x) => sum + x.quantity, 0);
+                    const lotUnitsPurchased = lotFromDb + lotUnitsAlreadyInThisOrder;
                     if (quantidadeCompra === 0) {
-                        // Se quantidade_compra = 0: permite apenas 1 unidade por agência (qualquer lote)
-                        // Verificar se já comprou alguma unidade
-                        if (totalUnitsPurchased === 0) {
-                            // Pode comprar apenas 1 unidade neste lote
+                        // quantidade_compra = 0: permite 1 unidade por agência por lote (não no total)
+                        if (lotUnitsPurchased === 0 && remainingQuantity > 0) {
                             unitsForThisLot = Math.min(remainingQuantity, 1);
                         }
-                        // Se já comprou, não pode mais comprar neste lote (vai para o próximo)
                     }
                     else {
-                        // Se quantidade_compra > 0: permite até quantidade_compra unidades neste lote
-                        // Calcular quantas unidades já foram compradas neste lote específico
-                        const [lotUnitsPurchasedResults] = await connection.execute(`SELECT COALESCE(SUM(oi.quantity), 0) as total 
-                             FROM order_items oi 
-                             INNER JOIN orders o ON oi.order_id = o.id 
-                             WHERE oi.product_id = ? AND oi.product_price_id = ? AND o.agency_id = ? AND o.status = 'CONFIRMED'`, [item.productId, price.id, agencyId]);
-                        const lotUnitsPurchased = Array.isArray(lotUnitsPurchasedResults) && lotUnitsPurchasedResults.length > 0
-                            ? Number(lotUnitsPurchasedResults[0].total)
-                            : 0;
-                        // Calcular quantas unidades ainda podem ser compradas neste lote
+                        // quantidade_compra > 0: permite até quantidade_compra unidades neste lote
                         const availableInLot = quantidadeCompra - lotUnitsPurchased;
                         if (availableInLot > 0) {
-                            // Pode comprar até availableInLot unidades neste lote
                             unitsForThisLot = Math.min(remainingQuantity, availableInLot);
                         }
-                        // Se não há mais espaço neste lote, vai para o próximo
                     }
                     if (unitsForThisLot > 0) {
                         const pricePerUnit = Number(price.value);
@@ -185,8 +175,8 @@ exports.orderService = {
                 const { emailService } = await Promise.resolve().then(() => __importStar(require('./emailService')));
                 const { agencyService } = await Promise.resolve().then(() => __importStar(require('./agencyService')));
                 const agency = await agencyService.findById(agencyId);
-                const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
-                const orderUrl = `${frontendUrl}/admin/pedidos/${orderId}`;
+                const { getPublicFrontendUrl } = await Promise.resolve().then(() => __importStar(require('../config/frontendUrl')));
+                const orderUrl = `${getPublicFrontendUrl()}/admin/pedidos/${orderId}`;
                 if (agency) {
                     // Enviar email para admins (mantém compatibilidade com sistema antigo)
                     await emailService.sendNewOrderNotification(orderId, agency.name, totalPoints, orderUrl);
@@ -249,9 +239,141 @@ exports.orderService = {
             size: r.size || null
         })) : [];
     },
+    /**
+     * Admin: troca a variação (modelo/tamanho) de um item do pedido.
+     * Regra: só troca se houver estoque disponível na nova variação e, ao trocar, devolve o estoque da antiga.
+     * Por segurança, bloqueia alteração se o pedido já estiver vinculado a uma remessa.
+     */
+    async updateOrderItemVariant(orderId, itemId, newProductVariantId) {
+        const connection = await db_1.pool.getConnection();
+        try {
+            await connection.beginTransaction();
+            const [orderRows] = await connection.execute(`SELECT id, status FROM orders WHERE id = ? FOR UPDATE`, [orderId]);
+            const ord = Array.isArray(orderRows) && orderRows[0] ? orderRows[0] : null;
+            if (!ord) {
+                await connection.rollback();
+                throw new Error('Pedido não encontrado.');
+            }
+            if (ord.status !== 'CONFIRMED') {
+                await connection.rollback();
+                throw new Error('Só é possível alterar itens em pedidos CONFIRMED.');
+            }
+            const [shipLinkRows] = await connection.execute(`SELECT 1 as linked FROM shipment_orders WHERE order_id = ? LIMIT 1`, [orderId]);
+            if (Array.isArray(shipLinkRows) && shipLinkRows.length > 0) {
+                await connection.rollback();
+                throw new Error('Pedido já está vinculado a uma remessa; não é possível alterar tipo/tamanho.');
+            }
+            const [itemRows] = await connection.execute(`SELECT id, product_id as productId, product_variant_id as productVariantId, quantity
+                 FROM order_items
+                 WHERE id = ? AND order_id = ?
+                 FOR UPDATE`, [itemId, orderId]);
+            const it = Array.isArray(itemRows) && itemRows[0] ? itemRows[0] : null;
+            if (!it) {
+                await connection.rollback();
+                throw new Error('Item do pedido não encontrado.');
+            }
+            const quantity = Number(it.quantity) || 0;
+            if (quantity <= 0) {
+                await connection.rollback();
+                throw new Error('Quantidade do item inválida.');
+            }
+            const productId = Number(it.productId);
+            const oldVariantId = it.productVariantId != null ? Number(it.productVariantId) : null;
+            const newVariantId = Number(newProductVariantId);
+            if (oldVariantId != null && oldVariantId === newVariantId) {
+                await connection.rollback();
+                throw new Error('A nova variação é igual à atual.');
+            }
+            const [newVarRows] = await connection.execute(`SELECT id, product_id as productId, stock, active
+                 FROM product_variants
+                 WHERE id = ?
+                 FOR UPDATE`, [newVariantId]);
+            const newVar = Array.isArray(newVarRows) && newVarRows[0] ? newVarRows[0] : null;
+            if (!newVar) {
+                await connection.rollback();
+                throw new Error('Variação de destino não encontrada.');
+            }
+            if (Number(newVar.productId) !== productId) {
+                await connection.rollback();
+                throw new Error('Variação de destino não pertence ao mesmo produto do item.');
+            }
+            if (!newVar.active) {
+                await connection.rollback();
+                throw new Error('Variação de destino está inativa.');
+            }
+            const available = Number(newVar.stock) || 0;
+            if (available < quantity) {
+                await connection.rollback();
+                throw new Error(`Sem estoque suficiente para a nova variação. Disponível: ${available}, necessário: ${quantity}.`);
+            }
+            if (oldVariantId != null) {
+                const [oldVarRows] = await connection.execute(`SELECT id, product_id as productId FROM product_variants WHERE id = ? FOR UPDATE`, [oldVariantId]);
+                const oldVar = Array.isArray(oldVarRows) && oldVarRows[0] ? oldVarRows[0] : null;
+                if (!oldVar) {
+                    await connection.rollback();
+                    throw new Error('Variação atual não encontrada (dados inconsistentes).');
+                }
+                if (Number(oldVar.productId) !== productId) {
+                    await connection.rollback();
+                    throw new Error('Variação atual não pertence ao mesmo produto do item (dados inconsistentes).');
+                }
+            }
+            // 1) Reserva na nova (-qty)  2) Devolve na antiga (+qty)  3) Atualiza item
+            const [updNew] = await connection.execute(`UPDATE product_variants SET stock = stock - ?, updated_at = NOW()
+                 WHERE id = ? AND stock >= ?`, [quantity, newVariantId, quantity]);
+            const affectedNew = Number(updNew?.affectedRows ?? 0);
+            if (affectedNew !== 1) {
+                await connection.rollback();
+                throw new Error('Não foi possível reservar estoque na nova variação.');
+            }
+            if (oldVariantId != null) {
+                await connection.execute(`UPDATE product_variants SET stock = stock + ?, updated_at = NOW()
+                     WHERE id = ?`, [quantity, oldVariantId]);
+            }
+            await connection.execute(`UPDATE order_items SET product_variant_id = ? WHERE id = ? AND order_id = ?`, [newVariantId, itemId, orderId]);
+            await connection.commit();
+            return {
+                orderId,
+                itemId,
+                oldProductVariantId: oldVariantId,
+                newProductVariantId: newVariantId,
+                quantity
+            };
+        }
+        catch (e) {
+            await connection.rollback();
+            throw e;
+        }
+        finally {
+            connection.release();
+        }
+    },
     async findAll() {
-        const results = await (0, db_1.query)('SELECT id, agency_id as agencyId, total_points as totalPoints, status, created_at as createdAt, updated_at as updatedAt FROM orders ORDER BY created_at DESC');
-        return Array.isArray(results) ? results : [];
+        const results = await (0, db_1.query)(`SELECT 
+                o.id,
+                o.agency_id as agencyId,
+                a.name as agencyName,
+                o.total_points as totalPoints,
+                o.status,
+                o.created_at as createdAt,
+                o.updated_at as updatedAt,
+                COALESCE(GROUP_CONCAT(CONCAT(p.name, ' (', oi.quantity, 'x)') ORDER BY oi.id SEPARATOR ', '), '') as productsSummary
+             FROM orders o
+             INNER JOIN agencies a ON o.agency_id = a.id
+             LEFT JOIN order_items oi ON o.id = oi.order_id
+             LEFT JOIN products p ON oi.product_id = p.id
+             GROUP BY o.id, o.agency_id, a.name, o.total_points, o.status, o.created_at, o.updated_at
+             ORDER BY o.created_at DESC`);
+        return Array.isArray(results) ? results.map((r) => ({
+            id: Number(r.id),
+            agencyId: Number(r.agencyId),
+            agencyName: r.agencyName,
+            totalPoints: Number(r.totalPoints),
+            status: r.status,
+            createdAt: r.createdAt,
+            updatedAt: r.updatedAt,
+            productsSummary: r.productsSummary || ''
+        })) : [];
     },
     async getLatestOrder() {
         const results = await (0, db_1.query)('SELECT id, agency_id as agencyId, total_points as totalPoints, status, created_at as createdAt, updated_at as updatedAt FROM orders ORDER BY created_at DESC LIMIT 1');
@@ -269,6 +391,98 @@ exports.orderService = {
             throw new Error('Only PENDING orders can be canceled');
         }
         await (0, db_1.query)('UPDATE orders SET status = ?, updated_at = NOW() WHERE id = ?', ['CANCELED', orderId]);
+    },
+    /**
+     * Cancela pedido CONFIRMED com motivo, extornando pontos e revertendo estoque.
+     * Grava o cancelamento em order_cancellations e opcionalmente envia e-mail.
+     */
+    async cancelWithReason(orderId, data) {
+        const order = await this.findById(orderId);
+        if (!order) {
+            throw new Error('Order not found');
+        }
+        if (order.status !== 'CONFIRMED') {
+            throw new Error('Only CONFIRMED orders can be canceled with reason. Current status: ' + order.status);
+        }
+        const items = await this.findItemsByOrderId(orderId);
+        if (items.length === 0) {
+            throw new Error('Order has no items');
+        }
+        const connection = await db_1.pool.getConnection();
+        try {
+            await connection.beginTransaction();
+            // Inserir registro de cancelamento
+            const [cancelResult] = await connection.execute(`INSERT INTO order_cancellations (order_id, reason, email_sent, email_body, created_at)
+                 VALUES (?, ?, FALSE, ?, NOW())`, [orderId, data.reason.trim(), data.emailMessage?.trim() || null]);
+            const cancellationId = cancelResult.insertId;
+            // Extornar pontos: entrada positiva no ledger (REFUND)
+            await connection.execute(`INSERT INTO agency_points_ledger (agency_id, source_type, source_id, points, description, created_at)
+                 VALUES (?, 'REFUND', ?, ?, ?, NOW())`, [
+                order.agencyId,
+                cancellationId,
+                order.totalPoints,
+                `Extorno cancelamento pedido #${orderId}`
+            ]);
+            // Reverter estoque de cada item
+            for (const item of items) {
+                if (item.productVariantId) {
+                    await connection.execute('UPDATE product_variants SET stock = stock + ?, updated_at = NOW() WHERE id = ?', [item.quantity, item.productVariantId]);
+                }
+                else {
+                    await connection.execute('UPDATE products SET quantity = quantity + ?, updated_at = NOW() WHERE id = ?', [item.quantity, item.productId]);
+                }
+            }
+            // Marcar pedido como cancelado
+            await connection.execute('UPDATE orders SET status = ?, updated_at = NOW() WHERE id = ?', ['CANCELED', orderId]);
+            await connection.commit();
+            connection.release();
+            const cancellation = {
+                id: cancellationId,
+                orderId,
+                reason: data.reason.trim(),
+                emailSent: false,
+                emailBody: data.emailMessage?.trim() || null,
+                createdAt: new Date()
+            };
+            // Enviar e-mail fora da transação (não bloquear se falhar)
+            if (data.sendEmail && data.reason.trim()) {
+                try {
+                    const { emailService } = await Promise.resolve().then(() => __importStar(require('./emailService')));
+                    const { agencyService } = await Promise.resolve().then(() => __importStar(require('./agencyService')));
+                    const agency = await agencyService.findById(order.agencyId);
+                    if (agency?.email) {
+                        const message = (data.emailMessage?.trim() || data.reason.trim()).replace(/\n/g, '<br>');
+                        await emailService.sendOrderCancellationEmail(agency.email, agency.name, orderId, order.totalPoints, message);
+                        await (0, db_1.query)('UPDATE order_cancellations SET email_sent = TRUE WHERE id = ?', [cancellationId]);
+                        cancellation.emailSent = true;
+                    }
+                }
+                catch (emailError) {
+                    console.error('Error sending order cancellation email:', emailError);
+                }
+            }
+            return cancellation;
+        }
+        catch (error) {
+            await connection.rollback();
+            connection.release();
+            throw error;
+        }
+    },
+    async getCancellationByOrderId(orderId) {
+        const results = await (0, db_1.query)(`SELECT id, order_id as orderId, reason, email_sent as emailSent, email_body as emailBody, created_at as createdAt
+             FROM order_cancellations WHERE order_id = ?`, [orderId]);
+        if (!Array.isArray(results) || results.length === 0)
+            return null;
+        const r = results[0];
+        return {
+            id: r.id,
+            orderId: r.orderId,
+            reason: r.reason,
+            emailSent: Boolean(r.emailSent),
+            emailBody: r.emailBody,
+            createdAt: r.createdAt
+        };
     },
     async getProductPurchaseCount(agencyId, productId) {
         // Contar total de unidades compradas deste produto pela agência

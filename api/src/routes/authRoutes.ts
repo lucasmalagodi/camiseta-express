@@ -1,12 +1,13 @@
 import { Router } from 'express';
 import { register, login, getMe } from '../controllers/authController';
 import { protect } from '../middlewares/authMiddleware';
+import { loginLimiter } from '../middlewares/rateLimitMiddleware';
 import { passwordResetController } from '../controllers/passwordResetController';
 
 const router = Router();
 
 router.post('/register', register);
-router.post('/login', login);
+router.post('/login', loginLimiter, login);
 router.get('/me', protect, getMe);
 
 // Password recovery routes

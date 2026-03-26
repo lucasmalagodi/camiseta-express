@@ -1,19 +1,10 @@
 import { Router } from 'express';
 import { executiveController } from '../controllers/executiveController';
-import { protect } from '../middlewares/authMiddleware';
+import { protectAdmin } from '../middlewares/authMiddleware';
 
 const router = Router();
 
-// Todas as rotas requerem autenticação
-router.use(protect);
-
-// Verificar se é admin
-router.use((req, res, next) => {
-    if (!req.user || req.user.role !== 'admin') {
-        return res.status(403).json({ message: 'Acesso negado. Apenas administradores.' });
-    }
-    next();
-});
+router.use(protectAdmin);
 
 router.get('/', executiveController.getAll);
 router.get('/active', executiveController.getActive);

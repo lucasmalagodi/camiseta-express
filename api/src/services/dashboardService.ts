@@ -436,6 +436,98 @@ export const dashboardService = {
         return data;
     },
 
+    /**
+     * Produtos ativos no catálogo com quantidade disponível:
+     * se houver variações ativas, soma o estoque das variações; senão usa `products.quantity`.
+     */
+    async getProductsInventory() {
+        const results = await query(`
+            SELECT 
+                p.id,
+                p.name,
+                c.name AS categoryName,
+                p.quantity AS productQuantity,
+                COALESCE(SUM(CASE WHEN pv.active = 1 THEN pv.stock ELSE 0 END), 0) AS variantStockSum,
+                COALESCE(SUM(CASE WHEN pv.active = 1 THEN 1 ELSE 0 END), 0) AS activeVariantCount
+            FROM products p
+            LEFT JOIN categories c ON c.id = p.category_id
+            LEFT JOIN product_variants pv ON pv.product_id = p.id
+            WHERE p.active = 1
+            GROUP BY p.id, p.name, c.name, p.quantity
+            ORDER BY p.name ASC
+        `) as any[];
+
+        const rows = Array.isArray(results) ? results : [];
+        const baseItems = rows.map((row: any) => {
+            const variantCount = Number(row.activeVariantCount) || 0;
+            const variantSum = Number(row.variantStockSum) || 0;
+            const productQty = Number(row.productQuantity) || 0;
+            const usesVariants = variantCount > 0;
+            return {
+                id: Number(row.id),
+                name: String(row.name ?? ''),
+                categoryName: row.categoryName != null ? String(row.categoryName) : null,
+                availableQuantity: usesVariants ? variantSum : productQty,
+                stockSource: usesVariants ? ('variants' as const) : ('product' as const),
+            };
+        });
+
+        // Buscar detalhamento de variações ativas (modelo + tamanho) para produtos que usam variações
+        const productIdsWithVariants = baseItems
+            .filter((it) => it.stockSource === 'variants')
+            .map((it) => it.id);
+
+        const variantsByProductId = new Map<
+            number,
+            Array<{ model: 'MASCULINO' | 'FEMININO' | 'UNISEX'; size: string; stock: number }>
+        >();
+
+        if (productIdsWithVariants.length > 0) {
+            const placeholders = productIdsWithVariants.map(() => '?').join(',');
+            const variants = await query(
+                `
+                SELECT 
+                    product_id AS productId,
+                    model,
+                    size,
+                    stock
+                FROM product_variants
+                WHERE active = 1 AND product_id IN (${placeholders})
+                ORDER BY product_id ASC, model ASC, size ASC
+                `,
+                productIdsWithVariants
+            ) as any[];
+
+            const list = Array.isArray(variants) ? variants : [];
+            for (const v of list) {
+                const productId = Number(v.productId);
+                const entry = variantsByProductId.get(productId) ?? [];
+                entry.push({
+                    model: v.model,
+                    size: String(v.size ?? ''),
+                    stock: Number(v.stock) || 0,
+                });
+                variantsByProductId.set(productId, entry);
+            }
+        }
+
+        const items = baseItems.map((it) => {
+            if (it.stockSource !== 'variants') return it;
+            return {
+                ...it,
+                variants: variantsByProductId.get(it.id) ?? [],
+            };
+        });
+
+        const totalAvailableUnits = items.reduce((sum, it) => sum + it.availableQuantity, 0);
+
+        return {
+            items,
+            totalProducts: items.length,
+            totalAvailableUnits,
+        };
+    },
+
     // Limpar cache (útil para testes ou quando dados são atualizados)
     clearCache
 };

@@ -1,7 +1,7 @@
 import { Outlet, useNavigate, useLocation, Link } from "react-router-dom";
 import { useAdminAuth } from "@/contexts/AdminAuthContext";
 import { Button } from "@/components/ui/button";
-import { LogOut, Shield, Home, Package, FileSpreadsheet, Building2, Settings, ShoppingCart, Star, MessageSquare, BarChart3, FileText, Users, Database } from "lucide-react";
+import { LogOut, Shield, Home, Package, FileSpreadsheet, Building2, Settings, ShoppingCart, Star, MessageSquare, BarChart3, FileText, Users, Database, Truck } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useOrderNotifications } from "@/hooks/useOrderNotifications";
@@ -27,6 +27,7 @@ const AdminLayout = () => {
     { path: "/admin/imports", label: "Imports de Pontos", icon: FileSpreadsheet },
     { path: "/admin/agencies", label: "Agências", icon: Building2 },
     { path: "/admin/pedidos", label: "Pedidos", icon: ShoppingCart },
+    { path: "/admin/envios", label: "Envios", icon: Truck },
     { path: "/admin/relatorios", label: "Relatórios", icon: BarChart3 },
     { path: "/admin/tickets", label: "Tickets de Suporte", icon: MessageSquare },
     { path: "/admin/documentos-legais", label: "Documentos Legais", icon: FileText },
@@ -99,7 +100,13 @@ const AdminLayout = () => {
         <header className="border-b border-border bg-background/95 backdrop-blur-sm sticky top-0 z-50">
           <div className="px-6 py-4">
             <h2 className="text-2xl font-bold">
-              {menuItems.find((item) => item.path === location.pathname)?.label || "Dashboard"}
+              {menuItems.find((item) => item.path === location.pathname)?.label ||
+                (location.pathname.includes("/preparacao")
+                  ? "Preparação de envios"
+                  : location.pathname.startsWith("/admin/envios/remessas/")
+                    ? "Detalhe da remessa"
+                    : null) ||
+                "Dashboard"}
             </h2>
           </div>
         </header>

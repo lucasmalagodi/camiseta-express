@@ -295,7 +295,7 @@ const SizeChartDialog = ({
                     <SelectTrigger id="size-chart-model">
                       <SelectValue placeholder="Selecione o modelo" />
                     </SelectTrigger>
-                    <SelectContent>
+                    <SelectContent className="z-[300]">
                       <SelectItem value="MASCULINO">Masculino</SelectItem>
                       <SelectItem value="FEMININO">Feminino</SelectItem>
                       <SelectItem value="UNISEX">Unisex</SelectItem>

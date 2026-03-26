@@ -3,37 +3,31 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.isAdmin = exports.adaptiveRateLimit = exports.strictLimiter = exports.generalLimiter = void 0;
+exports.isAdmin = exports.loginLimiter = exports.adaptiveRateLimit = exports.strictLimiter = exports.generalLimiter = void 0;
 const express_rate_limit_1 = __importDefault(require("express-rate-limit"));
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
+const authMiddleware_1 = require("./authMiddleware");
 // Função para verificar se o usuário é admin (sem bloquear se não for)
 const isAdmin = (req) => {
-    // Se já tiver o user no request (após autenticação), usar diretamente
     if (req.user && req.user.role === 'admin') {
         return true;
     }
-    // Tentar verificar o token diretamente do header (para rate limiting antes da autenticação)
     const authHeader = req.headers.authorization;
     if (authHeader && authHeader.startsWith('Bearer')) {
         try {
             const token = authHeader.split(' ')[1];
-            // Decodificar sem validar expiração (para rate limiting)
             const decoded = jsonwebtoken_1.default.decode(token);
             if (decoded && decoded.role === 'admin') {
-                // Tentar verificar se o token é válido (mas não bloquear por expiração)
                 try {
-                    jsonwebtoken_1.default.verify(token, process.env.JWT_SECRET || 'secret');
+                    jsonwebtoken_1.default.verify(token, (0, authMiddleware_1.getJwtSecret)());
                     return true;
                 }
-                catch (verifyError) {
-                    // Mesmo que o token esteja expirado, se o role for admin, consideramos admin
-                    // A autenticação real vai bloquear depois se necessário
+                catch {
                     return decoded.role === 'admin';
                 }
             }
         }
-        catch (error) {
-            // Se houver erro ao decodificar, não é admin
+        catch {
             return false;
         }
     }
@@ -73,3 +67,11 @@ const adaptiveRateLimit = (req, res, next) => {
     }
 };
 exports.adaptiveRateLimit = adaptiveRateLimit;
+/** Rate limiter rigoroso para login (anti brute-force). 5 tentativas por 15 min por IP. */
+exports.loginLimiter = (0, express_rate_limit_1.default)({
+    windowMs: 15 * 60 * 1000,
+    max: 5,
+    message: { message: 'Muitas tentativas de login. Tente novamente em 15 minutos.' },
+    standardHeaders: true,
+    legacyHeaders: false,
+});

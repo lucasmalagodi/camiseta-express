@@ -6,11 +6,12 @@ const agencyPointsLedgerController_1 = require("../controllers/agencyPointsLedge
 const agencyPointsController_1 = require("../controllers/agencyPointsController");
 const orderController_1 = require("../controllers/orderController");
 const agencyAuthMiddleware_1 = require("../middlewares/agencyAuthMiddleware");
+const rateLimitMiddleware_1 = require("../middlewares/rateLimitMiddleware");
 const router = (0, express_1.Router)();
 // Registration endpoints (must come before /:id routes)
 router.post('/validate-cnpj', agencyController_1.agencyController.validateCnpj);
 router.post('/register', agencyController_1.agencyController.register);
-router.post('/login', agencyController_1.agencyController.login);
+router.post('/login', rateLimitMiddleware_1.loginLimiter, agencyController_1.agencyController.login);
 router.post('/verify-code', agencyController_1.agencyController.verifyCode);
 // Authenticated agency endpoints (requires JWT token)
 router.get('/points/summary', agencyAuthMiddleware_1.protectAgency, agencyPointsController_1.agencyPointsController.getPointsSummary);

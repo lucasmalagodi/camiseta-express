@@ -245,5 +245,28 @@ exports.agencyPointsImportController = {
             console.error(error);
             res.status(500).json({ message: 'Erro ao excluir importação' });
         }
+    },
+    async resync(req, res) {
+        try {
+            const id = parseInt(req.params.id);
+            if (isNaN(id)) {
+                return res.status(400).json({ message: 'Invalid ID' });
+            }
+            // Verificar se import existe
+            const importData = await agencyPointsImportService_1.agencyPointsImportService.findById(id);
+            if (!importData) {
+                return res.status(404).json({ message: 'Import not found' });
+            }
+            const result = await agencyPointsImportService_1.agencyPointsImportService.resyncWithLedger(id);
+            return res.json({
+                success: true,
+                importId: id,
+                syncedAgencies: result.syncedAgencies,
+            });
+        }
+        catch (error) {
+            console.error(error);
+            res.status(500).json({ message: 'Erro ao re-sincronizar importação com ledger' });
+        }
     }
 };

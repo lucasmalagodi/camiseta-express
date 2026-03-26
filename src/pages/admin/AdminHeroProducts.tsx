@@ -168,7 +168,8 @@ const AdminHeroProducts = () => {
   };
 
   const handleFileSelect = (type: 'desktop' | 'mobile', file: File) => {
-    // Criar URL temporária para preview
+    // Comportamento original: abrir dialog de crop automaticamente
+    // Isso processa e redimensiona a imagem, evitando problemas de tamanho
     const reader = new FileReader();
     reader.onload = (e) => {
       const imageSrc = e.target?.result as string;
@@ -177,6 +178,23 @@ const AdminHeroProducts = () => {
       setCropDialogOpen(true);
     };
     reader.readAsDataURL(file);
+  };
+
+  const handleAdjustImage = (type: 'desktop' | 'mobile') => {
+    const imagePath = type === 'desktop' ? imageDesktop : imageMobile;
+    if (!imagePath) {
+      toast.error("Nenhuma imagem carregada para ajustar");
+      return;
+    }
+    
+    // Construir URL completa da imagem
+    const imageUrl = imagePath.startsWith('http') 
+      ? imagePath 
+      : `${window.location.origin}${imagePath}`;
+    
+    setCropImageSrc(imageUrl);
+    setCropImageType(type);
+    setCropDialogOpen(true);
   };
 
   const handleCropComplete = async (croppedImageBlob: Blob) => {
@@ -218,6 +236,12 @@ const AdminHeroProducts = () => {
 
   const handleSave = async () => {
     try {
+      // Validação do tempo de exibição
+      if (displayDuration < 1 || displayDuration > 60) {
+        toast.error("O tempo de exibição deve estar entre 1 e 60 segundos");
+        return;
+      }
+
       // Validações baseadas no tipo de banner
       if (bannerType === 'PRODUCT') {
         if (!selectedProductId) {
@@ -512,7 +536,7 @@ const AdminHeroProducts = () => {
                 <SelectTrigger id="bannerType">
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent className="z-[200]">
                   <SelectItem value="PRODUCT">Produto</SelectItem>
                   <SelectItem value="EXTERNAL">URL Externa</SelectItem>
                 </SelectContent>
@@ -529,7 +553,7 @@ const AdminHeroProducts = () => {
                   <SelectTrigger id="product">
                     <SelectValue placeholder={allProducts.length === 0 ? "Nenhum produto disponível" : "Selecione um produto"} />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent className="z-[200]">
                     {allProducts.length === 0 ? (
                       <div className="px-2 py-1.5 text-sm text-muted-foreground">
                         Nenhum produto disponível
@@ -565,7 +589,7 @@ const AdminHeroProducts = () => {
                     <SelectTrigger id="linkType">
                       <SelectValue />
                     </SelectTrigger>
-                    <SelectContent>
+                    <SelectContent className="z-[200]">
                       <SelectItem value="EXTERNAL_URL">Link Externo</SelectItem>
                       <SelectItem value="PRODUCTS_PAGE">Link de Produtos Ativos</SelectItem>
                       <SelectItem value="NONE">Sem Link</SelectItem>
@@ -613,6 +637,14 @@ const AdminHeroProducts = () => {
                   <div className="flex items-center gap-2">
                     <img src={imageDesktop.startsWith('http') ? imageDesktop : `${window.location.origin}${imageDesktop}`} alt="Desktop" className="w-16 h-16 object-cover rounded" />
                     <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleAdjustImage('desktop')}
+                      title="Ajustar/Cortar imagem"
+                    >
+                      <Pencil className="w-4 h-4" />
+                    </Button>
+                    <Button
                       variant="ghost"
                       size="sm"
                       onClick={() => setImageDesktop('')}
@@ -642,6 +674,14 @@ const AdminHeroProducts = () => {
                 {imageMobile && (
                   <div className="flex items-center gap-2">
                     <img src={imageMobile.startsWith('http') ? imageMobile : `${window.location.origin}${imageMobile}`} alt="Mobile" className="w-16 h-16 object-cover rounded" />
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleAdjustImage('mobile')}
+                      title="Ajustar/Cortar imagem"
+                    >
+                      <Pencil className="w-4 h-4" />
+                    </Button>
                     <Button
                       variant="ghost"
                       size="sm"
@@ -677,7 +717,12 @@ const AdminHeroProducts = () => {
                 min="1"
                 max="60"
                 value={displayDuration}
-                onChange={(e) => setDisplayDuration(parseInt(e.target.value) || 5)}
+                onChange={(e) => {
+                  const value = parseInt(e.target.value) || 1;
+                  // Limitar o valor entre 1 e 60
+                  const clampedValue = Math.max(1, Math.min(60, value));
+                  setDisplayDuration(clampedValue);
+                }}
               />
               <p className="text-xs text-muted-foreground mt-1">
                 Tempo que o banner ficará exibido antes de trocar para o próximo (1-60 segundos)
@@ -700,6 +745,8 @@ const AdminHeroProducts = () => {
         imageSrc={cropImageSrc}
         onCropComplete={handleCropComplete}
         aspectRatio={cropImageType === 'desktop' ? 16 / 9 : 9 / 16}
+        outputWidth={cropImageType === 'desktop' ? 1920 : undefined}
+        outputHeight={cropImageType === 'desktop' ? 1080 : undefined}
         title={`Cortar Imagem ${cropImageType === 'desktop' ? 'Desktop' : 'Mobile'}`}
       />
     </div>

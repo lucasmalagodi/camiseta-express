@@ -49,8 +49,8 @@ export const productController = {
 
     async update(req: Request, res: Response) {
         try {
-            const id = parseInt(req.params.id as string);
-            if (isNaN(id)) {
+            const id = parseInt(req.params.id as string, 10);
+            if (Number.isNaN(id) || id < 1) {
                 return res.status(400).json({ message: 'Invalid ID' });
             }
 
@@ -100,8 +100,8 @@ export const productController = {
 
     async delete(req: Request, res: Response) {
         try {
-            const id = parseInt(req.params.id as string);
-            if (isNaN(id)) {
+            const id = parseInt(req.params.id as string, 10);
+            if (Number.isNaN(id) || id < 1) {
                 return res.status(400).json({ message: 'Invalid ID' });
             }
 
@@ -120,8 +120,8 @@ export const productController = {
 
     async getById(req: Request, res: Response) {
         try {
-            const id = parseInt(req.params.id as string);
-            if (isNaN(id)) {
+            const id = parseInt(req.params.id as string, 10);
+            if (Number.isNaN(id) || id < 1) {
                 return res.status(400).json({ message: 'Invalid ID' });
             }
 
@@ -141,11 +141,12 @@ export const productController = {
         try {
             const filters: any = {};
             
-            if (req.query.categoryId) {
-                filters.categoryId = parseInt(req.query.categoryId as string);
-                if (isNaN(filters.categoryId)) {
+            if (req.query.categoryId !== undefined && req.query.categoryId !== '') {
+                const categoryId = parseInt(req.query.categoryId as string, 10);
+                if (Number.isNaN(categoryId) || categoryId < 1) {
                     return res.status(400).json({ message: 'Invalid categoryId filter' });
                 }
+                filters.categoryId = categoryId;
             }
 
             if (req.query.active !== undefined) {
@@ -159,11 +160,15 @@ export const productController = {
             // Verificar se deve retornar com detalhes (imagens e preços)
             const withDetails = req.query.withDetails === 'true';
             
-            // Buscar agencyId do query parameter (opcional)
-            const agencyId = req.query.agencyId 
-                ? parseInt(req.query.agencyId as string)
-                : undefined;
-            
+            let agencyId: number | undefined;
+            if (req.query.agencyId !== undefined && req.query.agencyId !== '') {
+                const parsed = parseInt(req.query.agencyId as string, 10);
+                if (Number.isNaN(parsed) || parsed < 1) {
+                    return res.status(400).json({ message: 'Invalid agencyId' });
+                }
+                agencyId = parsed;
+            }
+
             if (withDetails) {
                 const result = await productService.findAllWithDetails(
                     Object.keys(filters).length > 0 ? filters : undefined,
@@ -182,18 +187,27 @@ export const productController = {
 
     async getByIdWithDetails(req: Request, res: Response) {
         try {
-            const id = parseInt(req.params.id as string);
-            if (isNaN(id)) {
+            const id = parseInt(req.params.id as string, 10);
+            if (Number.isNaN(id) || id < 1) {
                 return res.status(400).json({ message: 'Invalid ID' });
             }
 
-            // Buscar agencyId do query parameter (opcional)
-            const agencyId = req.query.agencyId 
-                ? parseInt(req.query.agencyId as string)
-                : undefined;
+            let agencyId: number | undefined;
+            if (req.query.agencyId !== undefined && req.query.agencyId !== '') {
+                const parsed = parseInt(req.query.agencyId as string, 10);
+                if (Number.isNaN(parsed) || parsed < 1) {
+                    return res.status(400).json({ message: 'Invalid agencyId' });
+                }
+                agencyId = parsed;
+            }
 
             const product = await productService.findByIdWithDetails(id, agencyId);
             if (!product) {
+                return res.status(404).json({ message: 'Product not found' });
+            }
+
+            // Não expor produtos inativos para o público (segurança + consistência)
+            if (!product.active) {
                 return res.status(404).json({ message: 'Product not found' });
             }
 

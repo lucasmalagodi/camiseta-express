@@ -13,7 +13,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Search, Eye, Building2 } from "lucide-react";
+import { Check, Edit2, Eye, Search, X, Building2 } from "lucide-react";
 import { agencyService } from "@/services/api";
 import { toast } from "sonner";
 import { useTableSort } from "@/hooks/useTableSort";
@@ -38,6 +38,11 @@ const AdminAgenciesDashboard = () => {
   const [filteredAgencies, setFilteredAgencies] = useState<Agency[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
+
+  // Edição inline: somente o e-mail (outros campos permanecem bloqueados)
+  const [editingAgencyId, setEditingAgencyId] = useState<number | null>(null);
+  const [editingEmail, setEditingEmail] = useState<string>("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
   
   const { sortedData, handleSort, getSortIcon } = useTableSort(filteredAgencies);
 
@@ -66,8 +71,13 @@ const AdminAgenciesDashboard = () => {
     }
 
     const term = searchTerm.toLowerCase();
+    const termDigits = searchTerm.replace(/\D/g, "");
     const filtered = agencies.filter(
       (agency) =>
+        // Busca robusta de CNPJ: ignora pontuação do usuário e do CNPJ armazenado
+        (termDigits
+          ? agency.cnpj.replace(/\D/g, "").includes(termDigits)
+          : false) ||
         agency.cnpj.toLowerCase().includes(term) ||
         agency.name.toLowerCase().includes(term) ||
         (agency.branch && agency.branch.toLowerCase().includes(term))
@@ -80,6 +90,43 @@ const AdminAgenciesDashboard = () => {
     const clean = cnpj.replace(/\D/g, "");
     if (clean.length !== 14) return cnpj;
     return `${clean.substring(0, 2)}.${clean.substring(2, 5)}.${clean.substring(5, 8)}/${clean.substring(8, 12)}-${clean.substring(12)}`;
+  };
+
+  const startEditEmail = (agency: Agency) => {
+    setEditingAgencyId(agency.id);
+    setEditingEmail(agency.email || "");
+  };
+
+  const cancelEditEmail = () => {
+    setEditingAgencyId(null);
+    setEditingEmail("");
+  };
+
+  const saveEditEmail = async (agencyId: number) => {
+    const nextEmail = editingEmail.trim();
+    const isValidEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(nextEmail);
+    if (!isValidEmail) {
+      toast.error("Informe um e-mail válido.");
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      await agencyService.updateEmail(agencyId, nextEmail);
+
+      // Atualizar lista local (sem recarregar tudo)
+      setAgencies((prev) =>
+        prev.map((a) => (a.id === agencyId ? { ...a, email: nextEmail } : a))
+      );
+
+      toast.success("E-mail atualizado com sucesso.");
+      cancelEditEmail();
+    } catch (error) {
+      toast.error("Erro ao atualizar e-mail.");
+      console.error(error);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -168,7 +215,19 @@ const AdminAgenciesDashboard = () => {
                     <TableCell className="font-mono text-sm">
                       {formatCnpj(agency.cnpj)}
                     </TableCell>
-                    <TableCell>{agency.email}</TableCell>
+                    <TableCell>
+                      {editingAgencyId === agency.id ? (
+                        <Input
+                          type="email"
+                          value={editingEmail}
+                          onChange={(e) => setEditingEmail(e.target.value)}
+                          disabled={isSubmitting}
+                          className="w-full"
+                        />
+                      ) : (
+                        agency.email
+                      )}
+                    </TableCell>
                     <TableCell>{agency.branch || "-"}</TableCell>
                     <TableCell className="text-right font-medium">
                       {agency.balance.toLocaleString("pt-BR")} pts
@@ -179,16 +238,49 @@ const AdminAgenciesDashboard = () => {
                       </Badge>
                     </TableCell>
                     <TableCell className="text-right">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() =>
-                          navigate(`/admin/agencies/${agency.id}/history`)
-                        }
-                      >
-                        <Eye className="w-4 h-4 mr-2" />
-                        Ver Histórico
-                      </Button>
+                      {editingAgencyId === agency.id ? (
+                        <div className="flex items-center justify-end gap-2">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => saveEditEmail(agency.id)}
+                            disabled={isSubmitting}
+                          >
+                            <Check className="w-4 h-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={cancelEditEmail}
+                            disabled={isSubmitting}
+                          >
+                            <X className="w-4 h-4" />
+                          </Button>
+                        </div>
+                      ) : (
+                        <div className="flex items-center justify-end gap-2">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => startEditEmail(agency)}
+                            disabled={editingAgencyId !== null}
+                            aria-label={`Editar e-mail da agência ${agency.name}`}
+                          >
+                            <Edit2 className="w-4 h-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() =>
+                              navigate(`/admin/agencies/${agency.id}/history`)
+                            }
+                            disabled={editingAgencyId !== null}
+                          >
+                            <Eye className="w-4 h-4 mr-2" />
+                            Ver Histórico
+                          </Button>
+                        </div>
+                      )}
                     </TableCell>
                   </TableRow>
                 ))}

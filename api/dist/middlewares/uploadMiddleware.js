@@ -118,6 +118,6 @@ exports.upload = (0, multer_1.default)({
     storage: storage,
     fileFilter: fileFilter,
     limits: {
-        fileSize: 5 * 1024 * 1024 // 5MB
+        fileSize: 20 * 1024 * 1024 // 20MB (aumentado para suportar imagens de banner 1920x1080)
     }
 });

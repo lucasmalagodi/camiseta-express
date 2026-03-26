@@ -6,16 +6,20 @@ const orderService_1 = require("../services/orderService");
 const agencyService_1 = require("../services/agencyService");
 const createOrderItemSchema = zod_1.z.object({
     productId: zod_1.z.number().int().positive(),
-    quantity: zod_1.z.number().int().positive()
+    quantity: zod_1.z.number().int().positive(),
+    variantId: zod_1.z.number().int().positive().optional() // modelo + tamanho (camisa)
 });
 const createOrderSchema = zod_1.z.object({
     items: zod_1.z.array(createOrderItemSchema).min(1)
 });
+const updateOrderItemVariantSchema = zod_1.z.object({
+    productVariantId: zod_1.z.number().int().positive()
+});
 exports.orderController = {
     async create(req, res) {
         try {
-            const agencyId = parseInt(req.params.agencyId);
-            if (isNaN(agencyId)) {
+            const agencyId = parseInt(req.params.agencyId, 10);
+            if (Number.isNaN(agencyId) || agencyId < 1) {
                 return res.status(400).json({ message: 'Invalid agency ID' });
             }
             // Verificar se agência existe e está ativa
@@ -64,7 +68,13 @@ exports.orderController = {
                 return res.status(404).json({ message: 'Order not found' });
             }
             const items = await orderService_1.orderService.findItemsByOrderId(id);
-            res.json({ ...order, items });
+            const payload = { ...order, items };
+            if (order.status === 'CANCELED') {
+                const cancellation = await orderService_1.orderService.getCancellationByOrderId(id);
+                if (cancellation)
+                    payload.cancellation = cancellation;
+            }
+            res.json(payload);
         }
         catch (error) {
             console.error(error);
@@ -73,8 +83,8 @@ exports.orderController = {
     },
     async getByAgencyId(req, res) {
         try {
-            const agencyId = parseInt(req.params.agencyId);
-            if (isNaN(agencyId)) {
+            const agencyId = parseInt(req.params.agencyId, 10);
+            if (Number.isNaN(agencyId) || agencyId < 1) {
                 return res.status(400).json({ message: 'Invalid agency ID' });
             }
             const orders = await orderService_1.orderService.findByAgencyId(agencyId);
@@ -87,9 +97,9 @@ exports.orderController = {
     },
     async getProductPurchaseCount(req, res) {
         try {
-            const agencyId = parseInt(req.params.agencyId);
-            const productId = parseInt(req.params.productId);
-            if (isNaN(agencyId) || isNaN(productId)) {
+            const agencyId = parseInt(req.params.agencyId, 10);
+            const productId = parseInt(req.params.productId, 10);
+            if (Number.isNaN(agencyId) || agencyId < 1 || Number.isNaN(productId) || productId < 1) {
                 return res.status(400).json({ message: 'Invalid agency ID or product ID' });
             }
             const purchaseInfo = await orderService_1.orderService.getProductPurchaseCount(agencyId, productId);
@@ -129,16 +139,47 @@ exports.orderController = {
             if (isNaN(id)) {
                 return res.status(400).json({ message: 'Invalid ID' });
             }
-            await orderService_1.orderService.cancel(id);
-            res.json({ success: true, id });
+            const body = req.body || {};
+            const reason = typeof body.reason === 'string' ? body.reason.trim() : '';
+            if (!reason) {
+                return res.status(400).json({ message: 'O motivo do cancelamento é obrigatório.' });
+            }
+            const cancellation = await orderService_1.orderService.cancelWithReason(id, {
+                reason,
+                sendEmail: Boolean(body.sendEmail),
+                emailMessage: typeof body.emailMessage === 'string' ? body.emailMessage.trim() : undefined
+            });
+            res.json({ success: true, id, cancellation });
         }
         catch (error) {
             if (error instanceof Error) {
-                if (error.message.includes('not found') || error.message.includes('Only PENDING')) {
+                if (error.message.includes('not found') || error.message.includes('Only CONFIRMED')) {
                     return res.status(400).json({ message: error.message });
                 }
             }
             console.error(error);
+            res.status(500).json({ message: 'Internal server error' });
+        }
+    },
+    async updateOrderItemVariant(req, res) {
+        try {
+            const orderId = parseInt(req.params.orderId, 10);
+            const itemId = parseInt(req.params.itemId, 10);
+            if (Number.isNaN(orderId) || orderId < 1 || Number.isNaN(itemId) || itemId < 1) {
+                return res.status(400).json({ message: 'IDs inválidos' });
+            }
+            const body = updateOrderItemVariantSchema.parse(req.body);
+            const result = await orderService_1.orderService.updateOrderItemVariant(orderId, itemId, body.productVariantId);
+            res.json({ success: true, ...result });
+        }
+        catch (error) {
+            if (error instanceof zod_1.z.ZodError) {
+                return res.status(400).json({ message: 'Dados inválidos', errors: error.issues });
+            }
+            if (error instanceof Error) {
+                return res.status(400).json({ message: error.message });
+            }
+            console.error('updateOrderItemVariant:', error);
             res.status(500).json({ message: 'Internal server error' });
         }
     },

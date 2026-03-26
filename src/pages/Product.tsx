@@ -110,7 +110,7 @@ const Product = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { addItem } = useCart();
-  const { agency } = useAuth();
+  const { agency, authChecked } = useAuth();
   const [product, setProduct] = useState<Product | null>(null);
   const [loading, setLoading] = useState(true);
   const [api, setApi] = useState<any>(null);
@@ -129,28 +129,30 @@ const Product = () => {
   const lastRequestRef = useRef<{ id: number; agencyId?: number } | null>(null);
 
   useEffect(() => {
+    if (!authChecked || !id) return;
+
+    const productId = parseInt(id, 10);
+    if (Number.isNaN(productId) || productId < 1) {
+      navigate("/");
+      return;
+    }
+
     const loadProduct = async () => {
       try {
-        if (!id) return;
-        
-        const productId = Number(id);
         const agencyId = agency?.id;
-        
-        // Evitar requisições duplicadas
+
         if (loadingRef.current) return;
-        
-        // Se já fizemos uma requisição com os mesmos parâmetros, não fazer novamente
-        if (lastRequestRef.current && 
-            lastRequestRef.current.id === productId && 
+
+        if (lastRequestRef.current &&
+            lastRequestRef.current.id === productId &&
             lastRequestRef.current.agencyId === agencyId) {
           return;
         }
-        
+
         loadingRef.current = true;
         lastRequestRef.current = { id: productId, agencyId };
         setLoading(true);
-        
-        // Buscar produto da API (passando agencyId se logado para incluir contagem de compras)
+
         const { productService } = await import("../services/api");
         const foundProduct = await productService.getProductForFrontend(productId, agencyId);
         
@@ -201,10 +203,8 @@ const Product = () => {
       }
     };
 
-    if (id) {
-      loadProduct();
-    }
-  }, [id, navigate, agency?.id]);
+    loadProduct();
+  }, [id, navigate, agency?.id, authChecked]);
 
   useEffect(() => {
     if (!api) return;
@@ -757,7 +757,7 @@ const Product = () => {
                             className="relative w-full h-full object-contain transition-transform duration-500 group-hover:scale-110"
                           />
                           {/* Discount Badge */}
-                          {Number(relatedProduct.valor) > Number(relatedProduct.valorPrimeiroLote) && (
+                          {/* {Number(relatedProduct.valor) > Number(relatedProduct.valorPrimeiroLote) && (
                             <div className="absolute top-4 left-4 px-3 py-1 rounded-full hero-gradient text-xs font-semibold text-primary-foreground">
                               -{Math.round(
                                 ((Number(relatedProduct.valor) -
@@ -767,7 +767,7 @@ const Product = () => {
                               )}
                               %
                             </div>
-                          )}
+                          )} */}
                         </div>
 
                         {/* Product Info */}
@@ -901,7 +901,7 @@ const Product = () => {
               })()}
 
               {/* Instruções de como medir */}
-              <div className="bg-muted p-4 rounded-lg">
+              {/* <div className="bg-muted p-4 rounded-lg">
                 <h4 className="font-semibold mb-2">Como medir:</h4>
                 <ul className="text-sm space-y-1 text-muted-foreground list-disc list-inside">
                   <li><strong>Peito:</strong> Meça ao redor da parte mais larga do peito, mantendo a fita métrica horizontal</li>
@@ -910,7 +910,7 @@ const Product = () => {
                   <li><strong>Ombro:</strong> Meça de um ombro ao outro, na parte de trás</li>
                   <li><strong>Manga:</strong> Meça do ombro até o punho</li>
                 </ul>
-              </div>
+              </div> */}
             </div>
           </DialogContent>
         </Dialog>

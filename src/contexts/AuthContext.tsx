@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef, ReactNode } from "react";
+import { setOnAgencyUnauthorized, setOnAgencyActivity } from "@/services/api";
 
 interface Agency {
   id: number;
@@ -24,6 +25,8 @@ interface LoginResult {
 
 interface AuthContextType {
   agency: Agency | null;
+  /** true após tentar restaurar sessão do localStorage (evita request sem agencyId no F5) */
+  authChecked: boolean;
   login: (email: string, password: string) => Promise<LoginResult>;
   verifyCode: (email: string, code: string) => Promise<boolean>;
   logout: () => void;
@@ -36,6 +39,27 @@ interface AuthContextType {
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
+
+// Encerrar sessão da agência após este tempo sem atividade (ex.: 24h = 1 dia)
+const INACTIVITY_TIMEOUT_MS = 24 * 60 * 60 * 1000;
+const AGENCY_LAST_ACTIVITY_KEY = "agencyLastActivity";
+
+function getAgencyLastActivity(): number | null {
+  const raw = localStorage.getItem(AGENCY_LAST_ACTIVITY_KEY);
+  if (!raw) return null;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : null;
+}
+
+function touchAgencyLastActivity(): void {
+  localStorage.setItem(AGENCY_LAST_ACTIVITY_KEY, String(Date.now()));
+}
+
+function isAgencySessionExpired(): boolean {
+  const last = getAgencyLastActivity();
+  if (last === null) return false;
+  return Date.now() - last > INACTIVITY_TIMEOUT_MS;
+}
 
 // Helper para obter a URL da API
 const getApiUrl = (): string => {
@@ -55,28 +79,39 @@ const getApiUrl = (): string => {
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [agency, setAgency] = useState<Agency | null>(null);
+  const [authChecked, setAuthChecked] = useState(false);
   const [isRefreshingPoints, setIsRefreshingPoints] = useState(false);
   const [lastRefreshTime, setLastRefreshTime] = useState<number | null>(null);
   const isRefreshingRef = useRef(false);
 
-  // Carregar dados do localStorage ao inicializar
+  const logout = useCallback(() => {
+    setAgency(null);
+    localStorage.removeItem("agency");
+    localStorage.removeItem("agencyToken");
+    localStorage.removeItem(AGENCY_LAST_ACTIVITY_KEY);
+  }, []);
+
+  // Carregar dados do localStorage ao inicializar (rodar antes de páginas que dependem de agency)
   useEffect(() => {
     const storedAgency = localStorage.getItem("agency");
     const storedToken = localStorage.getItem("agencyToken");
-    // Só carregar a agência se houver token válido
     if (storedAgency && storedToken) {
+      if (isAgencySessionExpired()) {
+        logout();
+        setAuthChecked(true);
+        return;
+      }
       const agencyData = JSON.parse(storedAgency);
-      // Sempre garantir que o token esteja no objeto agency
       agencyData.token = storedToken;
-      // Atualizar o localStorage com o token incluído
       localStorage.setItem("agency", JSON.stringify(agencyData));
+      touchAgencyLastActivity();
       setAgency(agencyData);
     } else if (storedAgency && !storedToken) {
-      // Se há agência mas não há token, limpar dados inválidos
       localStorage.removeItem("agency");
       setAgency(null);
     }
-  }, []);
+    setAuthChecked(true);
+  }, [logout]);
 
   // Sincronizar token sempre que o agency mudar
   useEffect(() => {
@@ -106,11 +141,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
       console.log("Resposta recebida:", response.status, response.statusText);
 
-      if (!response.ok && response.status >= 500) {
-        throw new Error(`Erro do servidor: ${response.status}`);
-      }
-
-      let data;
+      let data: any;
       try {
         data = await response.json();
         console.log("Dados recebidos:", data);
@@ -123,7 +154,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
       if (!response.ok) {
         // Verificar se requer aceitação de documentos
-        if (response.status === 403 && data.requiresAcceptance) {
+        if (response.status === 403 && data?.requiresAcceptance) {
           return {
             success: false,
             requiresAcceptance: true,
@@ -131,8 +162,10 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
             message: data.message || "Você precisa aceitar os novos termos e políticas para continuar"
           };
         }
-        console.error("Erro no login:", data.message || "Erro desconhecido");
-        return { success: false, message: data.message || "Erro ao fazer login" };
+        // Usar a mensagem retornada pela API (inclui 500 com message)
+        const errorMsg = data?.message || (response.status >= 500 ? "Erro no servidor. Tente novamente mais tarde." : "Erro ao fazer login");
+        console.error("Erro no login:", errorMsg);
+        return { success: false, message: errorMsg };
       }
 
       // Verificar se requer verificação de código
@@ -144,7 +177,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         };
       }
 
-      // Login bem-sucedido
       const agencyData: Agency = {
         id: data.id,
         name: data.name,
@@ -152,12 +184,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         points: data.balance || 0,
         token: data.token,
       };
-      
       setAgency(agencyData);
       localStorage.setItem("agency", JSON.stringify(agencyData));
       if (data.token) {
         localStorage.setItem("agencyToken", data.token);
       }
+      touchAgencyLastActivity();
       return { success: true };
     } catch (error: any) {
       console.error("Erro ao fazer login:", error);
@@ -189,11 +221,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         body: JSON.stringify({ email, code }),
       });
 
-      if (!response.ok && response.status >= 500) {
-        throw new Error(`Erro do servidor: ${response.status}`);
-      }
-
-      let data;
+      let data: any;
       try {
         data = await response.json();
       } catch (jsonError) {
@@ -202,11 +230,10 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       }
 
       if (!response.ok) {
-        console.error("Erro na verificação:", data.message || "Erro desconhecido");
+        console.error("Erro na verificação:", data?.message || "Erro desconhecido");
         return false;
       }
 
-      // Código válido - fazer login
       const agencyData: Agency = {
         id: data.id,
         name: data.name,
@@ -214,12 +241,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         points: data.balance || 0,
         token: data.token,
       };
-      
       setAgency(agencyData);
       localStorage.setItem("agency", JSON.stringify(agencyData));
       if (data.token) {
         localStorage.setItem("agencyToken", data.token);
       }
+      touchAgencyLastActivity();
       return true;
     } catch (error: any) {
       console.error("Erro ao verificar código:", error);
@@ -232,11 +259,55 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
-  const logout = () => {
-    setAgency(null);
-    localStorage.removeItem("agency");
-    localStorage.removeItem("agencyToken");
-  };
+  // 401 em rota de agência → logout
+  useEffect(() => {
+    setOnAgencyUnauthorized(() => logout);
+    return () => setOnAgencyUnauthorized(null);
+  }, [logout]);
+
+  // Atualizar última atividade quando a API de agência for usada
+  useEffect(() => {
+    setOnAgencyActivity(touchAgencyLastActivity);
+    return () => setOnAgencyActivity(null);
+  }, []);
+
+  // Encerrar sessão por inatividade: checar ao focar a janela e a cada minuto
+  useEffect(() => {
+    if (!agency) return;
+    const checkAndLogout = () => {
+      if (isAgencySessionExpired()) {
+        logout();
+      }
+    };
+    const onFocus = () => checkAndLogout();
+    const intervalId = setInterval(checkAndLogout, 60 * 1000);
+    window.addEventListener("focus", onFocus);
+    return () => {
+      clearInterval(intervalId);
+      window.removeEventListener("focus", onFocus);
+    };
+  }, [agency, logout]);
+
+  // Atualizar última atividade com interação do usuário (mouse/teclado)
+  const lastAgencyTouchRef = useRef(0);
+  useEffect(() => {
+    if (!agency) return;
+    const debounceMs = 60 * 1000;
+    const onActivity = () => {
+      const now = Date.now();
+      if (now - lastAgencyTouchRef.current < debounceMs) return;
+      lastAgencyTouchRef.current = now;
+      touchAgencyLastActivity();
+    };
+    window.addEventListener("mousemove", onActivity);
+    window.addEventListener("keydown", onActivity);
+    window.addEventListener("click", onActivity);
+    return () => {
+      window.removeEventListener("mousemove", onActivity);
+      window.removeEventListener("keydown", onActivity);
+      window.removeEventListener("click", onActivity);
+    };
+  }, [agency]);
 
   const updatePoints = useCallback((points: number) => {
     setAgency((prevAgency) => {
@@ -313,6 +384,10 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
       console.log("Resposta recebida:", response.status, response.statusText);
 
+      if (response.status === 401) {
+        logout();
+        return;
+      }
       if (response.ok) {
         const data = await response.json();
         console.log("Dados recebidos:", data);
@@ -330,7 +405,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       setIsRefreshingPoints(false);
       console.log("Atualização finalizada");
     }
-  }, [agency?.token, lastRefreshTime, updatePoints]);
+  }, [agency?.token, lastRefreshTime, updatePoints, logout]);
 
   // Forçar atualização de pontos (ignora cooldown - usado após checkout)
   const forceRefreshPoints = useCallback(async () => {
@@ -360,10 +435,13 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         },
       });
 
+      if (response.status === 401) {
+        logout();
+        return;
+      }
       if (response.ok) {
         const data = await response.json();
         updatePoints(data.currentPoints);
-        // Não atualizar lastRefreshTime para não afetar o cooldown do botão manual
       } else {
         const errorData = await response.json().catch(() => ({}));
         console.error("Erro ao forçar atualização de pontos:", response.status, errorData);
@@ -374,7 +452,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       isRefreshingRef.current = false;
       setIsRefreshingPoints(false);
     }
-  }, [agency?.token, updatePoints]);
+  }, [agency?.token, updatePoints, logout]);
 
   // Calcular se pode atualizar (não está em loading e passou o cooldown)
   const canRefreshPoints = useMemo(() => {
@@ -410,11 +488,14 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           },
         });
 
+        if (response.status === 401) {
+          logout();
+          return;
+        }
         if (response.ok) {
           const data = await response.json();
           updatePoints(data.currentPoints);
         }
-        // Se falhar, mantém o último valor conhecido (não desloga)
       } catch (error) {
         console.error("Erro ao atualizar pontos:", error);
         // Mantém o último valor conhecido
@@ -430,7 +511,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     return () => {
       clearInterval(intervalId);
     };
-  }, [agency?.token, updatePoints]);
+  }, [agency?.token, updatePoints, logout]);
 
   // isAuthenticated deve verificar tanto agency quanto token
   const isAuthenticated = useMemo(() => {
@@ -441,6 +522,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     <AuthContext.Provider
       value={{
         agency,
+        authChecked,
         login,
         verifyCode,
         logout,

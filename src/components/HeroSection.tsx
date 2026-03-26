@@ -223,18 +223,38 @@ const HeroSection = () => {
     const hasLink = currentProduct.link?.type === 'EXTERNAL' || currentProduct.link?.type === 'PRODUCTS_PAGE';
     
     return (
-      <section className="relative w-full overflow-hidden h-[600px] md:h-[700px] lg:h-[800px]">
+      <section className="w-full">
         <div 
-          className={`relative w-full h-full group z-0 ${hasLink ? 'cursor-pointer' : ''}`}
+          className={`relative group mx-auto ${hasLink ? 'cursor-pointer' : ''}`}
           onClick={hasLink ? handleAddToCart : undefined}
+          style={{
+            maxWidth: '1920px',
+            width: '100%',
+            position: 'relative',
+          }}
         >
           <img
             src={getCurrentImage()}
             alt={currentProduct.nome || 'Banner'}
-            className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+            style={{
+              width: '100%',
+              height: 'auto',
+              maxWidth: '1920px',
+              maxHeight: '1080px',
+              display: 'block',
+              objectFit: 'contain',
+            }}
           />
           {/* Overlay escuro para melhorar legibilidade do texto (opcional) */}
-          <div className={`absolute inset-0 bg-black/20 transition-colors ${hasLink ? 'group-hover:bg-black/30' : ''}`} />
+          <div 
+            className={`absolute bg-black/20 transition-colors pointer-events-none ${hasLink ? 'group-hover:bg-black/30' : ''}`}
+            style={{
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+            }}
+          />
           
           {/* Navigation Dots para banners externos */}
           {products.length > 1 && (

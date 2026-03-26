@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { z } from 'zod';
 import { passwordResetService } from '../services/passwordResetService';
 import { emailService } from '../services/emailService';
+import { getPublicFrontendUrl } from '../config/frontendUrl';
 
 const forgotPasswordSchema = z.object({
     email: z.string().email()
@@ -32,8 +33,7 @@ export const passwordResetController = {
                     const token = await passwordResetService.createResetToken(agency.id);
 
                     // Construir URL de reset
-                    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
-                    const resetUrl = `${frontendUrl}/reset-password?token=${token}`;
+                    const resetUrl = `${getPublicFrontendUrl()}/reset-password?token=${token}`;
 
                     // Enviar email
                     await emailService.sendPasswordResetEmail(agency.email, token, resetUrl);

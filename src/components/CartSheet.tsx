@@ -66,7 +66,7 @@ const CartSheet = ({ open, onOpenChange }: CartSheetProps) => {
             <div className="space-y-4">
               {items.map((item) => (
                 <div
-                  key={item.id}
+                  key={item.variantId != null ? `${item.id}-${item.variantId}` : `${item.id}-base`}
                   className="flex gap-4 p-4 rounded-lg border border-border bg-card"
                 >
                   <div className="relative w-20 h-20 rounded-lg bg-gradient-to-b from-slate-50 to-slate-100 overflow-hidden">
@@ -111,7 +111,7 @@ const CartSheet = ({ open, onOpenChange }: CartSheetProps) => {
                           size="icon"
                           className="h-8 w-8"
                           onClick={() =>
-                            updateQuantity(item.id, item.quantity - 1)
+                            updateQuantity(item.id, item.quantity - 1, item.variantId)
                           }
                         >
                           <Minus className="w-4 h-4" />
@@ -124,7 +124,7 @@ const CartSheet = ({ open, onOpenChange }: CartSheetProps) => {
                           size="icon"
                           className="h-8 w-8"
                           onClick={() =>
-                            updateQuantity(item.id, item.quantity + 1)
+                            updateQuantity(item.id, item.quantity + 1, item.variantId)
                           }
                         >
                           <Plus className="w-4 h-4" />
@@ -134,7 +134,7 @@ const CartSheet = ({ open, onOpenChange }: CartSheetProps) => {
                         variant="ghost"
                         size="icon"
                         className="h-8 w-8 text-destructive hover:text-destructive"
-                        onClick={() => removeItem(item.id)}
+                        onClick={() => removeItem(item.id, item.variantId)}
                       >
                         <Trash2 className="w-4 h-4" />
                       </Button>

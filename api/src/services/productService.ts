@@ -234,8 +234,9 @@ export const productService = {
                 variantsByProduct[variant.productId].push(variant);
             });
 
-            // Buscar contagem de compras por agência (se agencyId fornecido)
+            // Buscar contagem de compras por agência (total e por lote)
             let purchaseCountsByProduct: Record<number, number> = {};
+            let purchasesByLot: Record<string, number> = {}; // key: "productId-priceId"
             if (agencyId && productIds.length > 0) {
                 const purchasePlaceholders = productIds.map(() => '?').join(',');
                 const purchaseCountsSql = `
@@ -248,9 +249,23 @@ export const productService = {
                     GROUP BY oi.product_id
                 `;
                 const purchaseCounts = await query(purchaseCountsSql, [...productIds, agencyId]) as any[];
-                
                 purchaseCounts.forEach((row: any) => {
                     purchaseCountsByProduct[row.productId] = Number(row.total) || 0;
+                });
+
+                const purchasesByLotSql = `
+                    SELECT 
+                        oi.product_id as productId,
+                        oi.product_price_id as priceId,
+                        COALESCE(SUM(oi.quantity), 0) as units
+                    FROM order_items oi 
+                    INNER JOIN orders o ON oi.order_id = o.id 
+                    WHERE oi.product_id IN (${purchasePlaceholders}) AND o.agency_id = ? AND o.status = 'CONFIRMED'
+                    GROUP BY oi.product_id, oi.product_price_id
+                `;
+                const purchasesByLotRows = await query(purchasesByLotSql, [...productIds, agencyId]) as any[];
+                purchasesByLotRows.forEach((row: any) => {
+                    purchasesByLot[`${row.productId}-${row.priceId}`] = Number(row.units) || 0;
                 });
             }
 
@@ -260,50 +275,30 @@ export const productService = {
                 const prices = pricesByProduct[product.id] || [];
                 const variants = variantsByProduct[product.id] || [];
                 
-                // Ordenar preços por batch
                 const sortedPrices = prices.sort((a: any, b: any) => a.batch - b.batch);
-                
-                // Buscar quantidade de compras da agência
                 const agencyPurchaseCount = agencyId ? (purchaseCountsByProduct[product.id] || 0) : 0;
                 
-                // Determinar qual lote usar baseado na lógica de lotes
                 let loteDisponivel: any = null;
                 let podeComprar = false;
                 
                 if (sortedPrices.length > 0) {
-                    // Percorrer os lotes em ordem
                     for (let i = 0; i < sortedPrices.length; i++) {
                         const lote = sortedPrices[i];
                         const quantidadeCompra = Number(lote.quantidadeCompra) || 0;
-                        
-                        // Se quantidade_compra for 0, permite apenas 1 unidade por agência (qualquer lote)
+                        const unitsInThisLot = agencyId ? (purchasesByLot[`${product.id}-${lote.id}`] || 0) : 0;
+
                         if (quantidadeCompra === 0) {
-                            // Se a agência ainda não comprou nenhuma unidade, pode comprar
-                            if (agencyPurchaseCount === 0) {
-                                loteDisponivel = lote;
-                                podeComprar = true;
-                                break;
-                            }
-                            // Se já comprou, não pode mais comprar neste lote com quantidadeCompra = 0
-                            continue;
-                        }
-                        
-                        // Se quantidade_compra > 0, verificar agencyPurchaseCount
-                        if (agencyPurchaseCount >= quantidadeCompra) {
-                            // Se já comprou o suficiente, tentar próximo lote
-                            continue;
-                        } else {
-                            // Ainda pode comprar neste lote
+                            if (unitsInThisLot >= 1) continue;
                             loteDisponivel = lote;
                             podeComprar = true;
                             break;
                         }
+                        if (unitsInThisLot >= quantidadeCompra) continue;
+                        loteDisponivel = lote;
+                        podeComprar = true;
+                        break;
                     }
-                    
-                    // Se não encontrou lote disponível, não pode comprar
-                    if (!loteDisponivel) {
-                        podeComprar = false;
-                    }
+                    if (!loteDisponivel) podeComprar = false;
                 }
                 
                 // Calcular menor e maior preço para exibição
@@ -394,8 +389,9 @@ export const productService = {
             variantsByProduct[variant.productId].push(variant);
         });
 
-        // Buscar contagem de compras por agência (se agencyId fornecido)
+        // Buscar contagem de compras por agência (total e por lote)
         let purchaseCountsByProduct: Record<number, number> = {};
+        let purchasesByLot: Record<string, number> = {};
         if (agencyId && productIds.length > 0) {
             const purchasePlaceholders = productIds.map(() => '?').join(',');
             const purchaseCountsSql = `
@@ -408,62 +404,55 @@ export const productService = {
                 GROUP BY oi.product_id
             `;
             const purchaseCounts = await query(purchaseCountsSql, [...productIds, agencyId]) as any[];
-            
             purchaseCounts.forEach((row: any) => {
                 purchaseCountsByProduct[row.productId] = Number(row.total) || 0;
             });
+
+            const purchasesByLotSql = `
+                SELECT 
+                    oi.product_id as productId,
+                    oi.product_price_id as priceId,
+                    COALESCE(SUM(oi.quantity), 0) as units
+                FROM order_items oi 
+                INNER JOIN orders o ON oi.order_id = o.id 
+                WHERE oi.product_id IN (${purchasePlaceholders}) AND o.agency_id = ? AND o.status = 'CONFIRMED'
+                GROUP BY oi.product_id, oi.product_price_id
+            `;
+            const purchasesByLotRows = await query(purchasesByLotSql, [...productIds, agencyId]) as any[];
+            purchasesByLotRows.forEach((row: any) => {
+                purchasesByLot[`${row.productId}-${row.priceId}`] = Number(row.units) || 0;
+            });
         }
 
-        // Adicionar imagens, preços e variações aos produtos (mesma lógica do findAllWithDetails)
         const productsWithDetails = data.map(product => {
             const images = imagesByProduct[product.id] || [];
             const prices = pricesByProduct[product.id] || [];
             const variants = variantsByProduct[product.id] || [];
             
-            // Ordenar preços por batch
             const sortedPrices = prices.sort((a: any, b: any) => a.batch - b.batch);
-            
-            // Buscar quantidade de compras da agência
             const agencyPurchaseCount = agencyId ? (purchaseCountsByProduct[product.id] || 0) : 0;
             
-            // Determinar qual lote usar baseado na lógica de lotes
             let loteDisponivel: any = null;
             let podeComprar = false;
             
             if (sortedPrices.length > 0) {
-                // Percorrer os lotes em ordem
                 for (let i = 0; i < sortedPrices.length; i++) {
                     const lote = sortedPrices[i];
                     const quantidadeCompra = Number(lote.quantidadeCompra) || 0;
-                    
-                    // Se quantidade_compra for 0, permite apenas 1 unidade por agência (qualquer lote)
+                    const unitsInThisLot = agencyId ? (purchasesByLot[`${product.id}-${lote.id}`] || 0) : 0;
+
                     if (quantidadeCompra === 0) {
-                        // Se a agência ainda não comprou nenhuma unidade, pode comprar
-                        if (agencyPurchaseCount === 0) {
-                            loteDisponivel = lote;
-                            podeComprar = true;
-                            break;
-                        }
-                        // Se já comprou, não pode mais comprar neste lote com quantidadeCompra = 0
-                        continue;
-                    }
-                    
-                    // Se quantidade_compra > 0, verificar agencyPurchaseCount
-                    if (agencyPurchaseCount >= quantidadeCompra) {
-                        // Se já comprou o suficiente, tentar próximo lote
-                        continue;
-                    } else {
-                        // Ainda pode comprar neste lote
+                        if (unitsInThisLot >= 1) continue;
                         loteDisponivel = lote;
                         podeComprar = true;
                         break;
                     }
+                    if (unitsInThisLot >= quantidadeCompra) continue;
+                    loteDisponivel = lote;
+                    podeComprar = true;
+                    break;
                 }
-                
-                // Se não encontrou lote disponível, não pode comprar
-                if (!loteDisponivel) {
-                    podeComprar = false;
-                }
+                if (!loteDisponivel) podeComprar = false;
             }
             
             // Calcular menor e maior preço para exibição

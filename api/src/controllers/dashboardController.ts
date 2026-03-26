@@ -120,5 +120,18 @@ export const dashboardController = {
                 error: process.env.NODE_ENV === 'development' ? error?.stack : undefined
             });
         }
-    }
+    },
+
+    async getProductsInventory(req: Request, res: Response) {
+        try {
+            const data = await dashboardService.getProductsInventory();
+            res.json({ success: true, data });
+        } catch (error: any) {
+            console.error('Error fetching products inventory:', error);
+            res.status(500).json({
+                success: false,
+                message: error?.message || 'Erro ao buscar estoque dos produtos',
+            });
+        }
+    },
 };

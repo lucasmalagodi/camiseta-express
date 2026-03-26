@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import rateLimit from 'express-rate-limit';
 import jwt from 'jsonwebtoken';
+import { getJwtSecret } from './authMiddleware';
 
 interface UserPayload {
     id: number;
@@ -10,31 +11,24 @@ interface UserPayload {
 
 // Função para verificar se o usuário é admin (sem bloquear se não for)
 const isAdmin = (req: Request): boolean => {
-    // Se já tiver o user no request (após autenticação), usar diretamente
     if (req.user && req.user.role === 'admin') {
         return true;
     }
 
-    // Tentar verificar o token diretamente do header (para rate limiting antes da autenticação)
     const authHeader = req.headers.authorization;
     if (authHeader && authHeader.startsWith('Bearer')) {
         try {
             const token = authHeader.split(' ')[1];
-            // Decodificar sem validar expiração (para rate limiting)
             const decoded = jwt.decode(token) as UserPayload;
             if (decoded && decoded.role === 'admin') {
-                // Tentar verificar se o token é válido (mas não bloquear por expiração)
                 try {
-                    jwt.verify(token, process.env.JWT_SECRET || 'secret');
+                    jwt.verify(token, getJwtSecret());
                     return true;
-                } catch (verifyError) {
-                    // Mesmo que o token esteja expirado, se o role for admin, consideramos admin
-                    // A autenticação real vai bloquear depois se necessário
+                } catch {
                     return decoded.role === 'admin';
                 }
             }
-        } catch (error) {
-            // Se houver erro ao decodificar, não é admin
+        } catch {
             return false;
         }
     }
@@ -76,5 +70,14 @@ export const adaptiveRateLimit = (req: Request, res: Response, next: NextFunctio
         return strictLimiter(req, res, next);
     }
 };
+
+/** Rate limiter rigoroso para login (anti brute-force). 5 tentativas por 15 min por IP. */
+export const loginLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 5,
+    message: { message: 'Muitas tentativas de login. Tente novamente em 15 minutos.' },
+    standardHeaders: true,
+    legacyHeaders: false,
+});
 
 export { isAdmin };

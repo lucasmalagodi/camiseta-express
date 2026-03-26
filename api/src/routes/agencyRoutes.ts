@@ -4,13 +4,14 @@ import { agencyPointsLedgerController } from '../controllers/agencyPointsLedgerC
 import { agencyPointsController } from '../controllers/agencyPointsController';
 import { orderController } from '../controllers/orderController';
 import { protectAgency } from '../middlewares/agencyAuthMiddleware';
+import { loginLimiter } from '../middlewares/rateLimitMiddleware';
 
 const router = Router();
 
 // Registration endpoints (must come before /:id routes)
 router.post('/validate-cnpj', agencyController.validateCnpj);
 router.post('/register', agencyController.register);
-router.post('/login', agencyController.login);
+router.post('/login', loginLimiter, agencyController.login);
 router.post('/verify-code', agencyController.verifyCode);
 
 // Authenticated agency endpoints (requires JWT token)

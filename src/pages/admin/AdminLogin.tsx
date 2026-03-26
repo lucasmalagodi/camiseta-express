@@ -28,21 +28,14 @@ const AdminLogin = () => {
     setIsLoading(true);
 
     try {
-      const success = await login(loginData.email, loginData.password);
+      const result = await login(loginData.email, loginData.password);
 
-      if (success) {
+      if (result.ok) {
         toast.success("Login realizado com sucesso!");
-        // Pequeno delay para garantir que o estado foi atualizado
-        setTimeout(() => {
-          navigate("/admin");
-        }, 100);
+        setTimeout(() => navigate("/admin"), 100);
       } else {
-        toast.error("Email ou senha incorretos, ou você não tem permissão de administrador!", {
-          style: {
-            backgroundColor: "#fee2e2",
-            color: "#991b1b",
-            border: "1px solid #fca5a5",
-          },
+        toast.error(result.message || "Verifique suas credenciais e tente novamente.", {
+          style: { backgroundColor: "#fee2e2", color: "#991b1b", border: "1px solid #fca5a5" },
         });
       }
     } catch (error) {

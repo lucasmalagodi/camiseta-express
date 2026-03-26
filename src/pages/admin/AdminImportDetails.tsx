@@ -81,6 +81,7 @@ const AdminImportDetails = () => {
     }
 
     const term = searchTerm.toLowerCase().trim();
+    const termDigits = searchTerm.replace(/\D/g, "");
     return importData.items.filter((item) => {
       // Buscar em múltiplos campos
       const searchableFields = [
@@ -97,9 +98,17 @@ const AdminImportDetails = () => {
         item.points?.toString() || "",
       ];
 
-      return searchableFields.some((field) =>
+      const itemCnpjDigits = (item.cnpj || "").replace(/\D/g, "");
+      const matchesCnpjDigits = termDigits
+        ? itemCnpjDigits.includes(termDigits)
+        : false;
+
+      const matchesAnyTextField = searchableFields.some((field) =>
         field.toLowerCase().includes(term)
       );
+
+      // Preferir match por CNPJ normalizado quando houver dígitos na busca.
+      return matchesCnpjDigits || matchesAnyTextField;
     });
   }, [importData?.items, searchTerm]);
 
@@ -159,7 +168,7 @@ const AdminImportDetails = () => {
             <div>
               <p className="text-sm text-muted-foreground">Total de Pontos</p>
               <p className="font-medium">
-                {formatPoints(totalPoints).toLocaleString("pt-BR")} pts
+                {formatPoints(totalPoints)} pts
               </p>
             </div>
           </div>
@@ -304,7 +313,7 @@ const AdminImportDetails = () => {
                       <TableCell>{item.productName || "-"}</TableCell>
                       <TableCell>{item.company || "-"}</TableCell>
                       <TableCell className="text-right font-medium">
-                        {formatPoints(Number(item.points)).toLocaleString("pt-BR")} pts
+                        {formatPoints(Number(item.points))} pts
                       </TableCell>
                     </TableRow>
                   ))}
@@ -316,7 +325,7 @@ const AdminImportDetails = () => {
             <div className="mt-4 text-sm text-muted-foreground">
               Total de pontos nos itens filtrados:{" "}
               <span className="font-medium">
-                {formatPoints(filteredTotalPoints).toLocaleString("pt-BR")} pts
+                {formatPoints(filteredTotalPoints)} pts
               </span>
             </div>
           )}

@@ -3,18 +3,23 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.protectAdmin = exports.protect = void 0;
+exports.protectAdmin = exports.protect = exports.getJwtSecret = void 0;
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
+/** Retorna JWT_SECRET; em produção exige que esteja definido (nunca usar fallback). */
+const getJwtSecret = () => {
+    const secret = process.env.JWT_SECRET;
+    if (process.env.NODE_ENV === 'production' && !secret) {
+        throw new Error('JWT_SECRET deve estar definido em produção');
+    }
+    return secret || 'secret';
+};
+exports.getJwtSecret = getJwtSecret;
 const protect = async (req, res, next) => {
-    let token;
     if (req.headers.authorization &&
         req.headers.authorization.startsWith('Bearer')) {
         try {
-            // Get token from header
-            token = req.headers.authorization.split(' ')[1];
-            // Verify token using JWT
-            const decoded = jsonwebtoken_1.default.verify(token, process.env.JWT_SECRET || 'secret');
-            // Add user to request
+            const token = req.headers.authorization.split(' ')[1];
+            const decoded = jsonwebtoken_1.default.verify(token, (0, exports.getJwtSecret)());
             req.user = {
                 id: decoded.id,
                 email: decoded.email,
@@ -33,19 +38,14 @@ const protect = async (req, res, next) => {
 };
 exports.protect = protect;
 const protectAdmin = async (req, res, next) => {
-    let token;
     if (req.headers.authorization &&
         req.headers.authorization.startsWith('Bearer')) {
         try {
-            // Get token from header
-            token = req.headers.authorization.split(' ')[1];
-            // Verify token using JWT
-            const decoded = jsonwebtoken_1.default.verify(token, process.env.JWT_SECRET || 'secret');
-            // Verificar se é admin
+            const token = req.headers.authorization.split(' ')[1];
+            const decoded = jsonwebtoken_1.default.verify(token, (0, exports.getJwtSecret)());
             if (decoded.role !== 'admin') {
                 return res.status(403).json({ message: 'Acesso negado. Apenas administradores.' });
             }
-            // Add user to request
             req.user = {
                 id: decoded.id,
                 email: decoded.email,

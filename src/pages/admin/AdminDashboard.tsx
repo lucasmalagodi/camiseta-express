@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { Link } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
@@ -32,6 +33,7 @@ import {
   Minimize2,
   Lock,
   Unlock,
+  Package,
 } from "lucide-react";
 import { dashboardService, dashboardWidgetService, reportService } from "@/services/api";
 import { toast } from "sonner";
@@ -68,7 +70,8 @@ interface AgencyOrder {
 
 type CardId = 
   | 'orders-summary'
-  | 'top-agency-orders';
+  | 'top-agency-orders'
+  | 'products-inventory';
 
 interface CardConfig {
   id: CardId;
@@ -76,16 +79,37 @@ interface CardConfig {
   expanded: number; // 0 = 1 coluna, 1 = 2 colunas, 2 = 3 colunas
 }
 
+interface ProductInventoryRow {
+  id: number;
+  name: string;
+  categoryName: string | null;
+  availableQuantity: number;
+  stockSource: "variants" | "product";
+  variants?: Array<{
+    model: "MASCULINO" | "FEMININO" | "UNISEX";
+    size: string;
+    stock: number;
+  }>;
+}
+
+interface ProductsInventorySummary {
+  items: ProductInventoryRow[];
+  totalProducts: number;
+  totalAvailableUnits: number;
+}
+
 const STORAGE_KEY = 'dashboard-cards-config';
 const STORAGE_LOCK_KEY = 'dashboard-cards-locked';
 const DEFAULT_CARDS: CardConfig[] = [
   { id: 'orders-summary', order: 0, expanded: 0 },
   { id: 'top-agency-orders', order: 1, expanded: 0 },
+  { id: 'products-inventory', order: 2, expanded: 0 },
 ];
 
 const AdminDashboard = () => {
   const [ordersSummary, setOrdersSummary] = useState<OrdersSummary | null>(null);
   const [topAgencyOrders, setTopAgencyOrders] = useState<TopAgency | null>(null);
+  const [productsInventory, setProductsInventory] = useState<ProductsInventorySummary | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   
   // Report widgets state
@@ -123,24 +147,76 @@ const AdminDashboard = () => {
   
   const { sortedData: sortedAgencyOrders, handleSort, getSortIcon } = useTableSort(agencyOrders);
 
-  // Load cards config from localStorage
+  const formatModelLabel = (model: "MASCULINO" | "FEMININO" | "UNISEX") => {
+    if (model === "MASCULINO") return "Masculino";
+    if (model === "FEMININO") return "Feminino";
+    return "Unisex";
+  };
+
+  const renderVariantBreakdown = (variants: NonNullable<ProductInventoryRow["variants"]>) => {
+    if (!variants || variants.length === 0) return null;
+    const byModel = variants.reduce((acc, v) => {
+      (acc[v.model] ||= []).push(v);
+      return acc;
+    }, {} as Record<"MASCULINO" | "FEMININO" | "UNISEX", typeof variants>);
+
+    const models: Array<"MASCULINO" | "FEMININO" | "UNISEX"> = ["MASCULINO", "FEMININO", "UNISEX"];
+    const lines = models
+      .filter((m) => (byModel[m]?.length || 0) > 0)
+      .map((m) => {
+        const parts = byModel[m]
+          .map((x) => `${x.size}: ${x.stock}`)
+          .join(" • ");
+        const total = byModel[m].reduce((s, x) => s + (x.stock || 0), 0);
+        return `${formatModelLabel(m)} (${total}) — ${parts}`;
+      });
+
+    return (
+      <div className="mt-1 space-y-0.5 text-xs text-muted-foreground">
+        {lines.map((line) => (
+          <div key={line} className="truncate" title={line}>
+            {line}
+          </div>
+        ))}
+      </div>
+    );
+  };
+
+  // Load cards config from localStorage (mescla novos cards padrão, ex.: estoque de produtos)
   useEffect(() => {
     const saved = localStorage.getItem(STORAGE_KEY);
+    let initial = DEFAULT_CARDS;
     if (saved) {
       try {
-        const parsed = JSON.parse(saved);
+        const parsed = JSON.parse(saved) as CardConfig[];
         if (Array.isArray(parsed) && parsed.length > 0) {
-          setCardsConfig(parsed);
+          const defaultIds = DEFAULT_CARDS.map((c) => c.id);
+          const savedMap = new Map(parsed.map((c) => [c.id, c]));
+          const merged: CardConfig[] = [];
+          let order = 0;
+          for (const def of DEFAULT_CARDS) {
+            const existing = savedMap.get(def.id);
+            merged.push(
+              existing ? { ...existing, order: order++ } : { ...def, order: order++ }
+            );
+          }
+          for (const c of parsed) {
+            if (!defaultIds.includes(c.id)) {
+              merged.push({ ...c, order: order++ });
+            }
+          }
+          initial = merged;
         }
       } catch (error) {
-        console.error('Erro ao carregar configuração dos cards:', error);
+        console.error("Erro ao carregar configuração dos cards:", error);
       }
     }
 
-    // Load lock state
+    setCardsConfig(initial);
+
     const savedLock = localStorage.getItem(STORAGE_LOCK_KEY);
     if (savedLock !== null) {
-      setIsLocked(savedLock === 'true');
+      setIsLocked(savedLock === "true");
     }
   }, []);
 
@@ -252,16 +328,23 @@ const AdminDashboard = () => {
   const loadDashboardData = async () => {
     try {
       setIsLoading(true);
-      const [
-        summary,
-        agencyByOrders,
-      ] = await Promise.all([
+      const [summary, agencyByOrders, inventory] = await Promise.all([
         dashboardService.getOrdersSummary(),
         dashboardService.getTopAgencyByOrders(),
+        dashboardService.getProductsInventory().catch((err) => {
+          console.error(err);
+          toast.error("Não foi possível carregar o estoque dos produtos");
+          return {
+            items: [] as ProductInventoryRow[],
+            totalProducts: 0,
+            totalAvailableUnits: 0,
+          };
+        }),
       ]);
 
       setOrdersSummary(summary);
       setTopAgencyOrders(agencyByOrders);
+      setProductsInventory(inventory);
     } catch (error) {
       console.error("Erro ao carregar dados do dashboard:", error);
       toast.error("Erro ao carregar dados do dashboard");
@@ -587,7 +670,7 @@ const AdminDashboard = () => {
       <div className="space-y-6">
         <h2 className="text-3xl font-bold">Dashboard</h2>
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {[1, 2, 3, 4, 5].map((i) => (
+          {[1, 2, 3, 4, 5, 6].map((i) => (
             <Card key={i}>
               <CardHeader>
                 <Skeleton className="h-6 w-32" />
@@ -679,7 +762,7 @@ const AdminDashboard = () => {
                       <div className="flex items-center gap-2">
                         <DollarSign className="h-4 w-4 text-green-500" />
                         <p className="text-2xl font-bold">
-                          {formatPoints(ordersSummary?.totalPointsSpent || 0).toLocaleString("pt-BR")} pts
+                          {formatPoints(ordersSummary?.totalPointsSpent || 0)} pts
                         </p>
                       </div>
                       <p className="text-xs text-muted-foreground mt-1">Total de pontos gastos</p>
@@ -741,6 +824,84 @@ const AdminDashboard = () => {
                     </div>
                   ) : (
                     <p className="text-sm text-muted-foreground">Nenhuma agência encontrada</p>
+                  )}
+                </CardContent>
+              </Card>
+            );
+          }
+
+          if (cardId === "products-inventory") {
+            return renderCardWrapper(
+              cardId,
+              <Card className="border-l-4 border-l-amber-500 h-full max-h-[600px] overflow-hidden flex flex-col">
+                {renderCardHeader(
+                  cardId,
+                  "Itens cadastrados e estoque",
+                  <div className="h-12 w-12 rounded-full bg-amber-100 dark:bg-amber-900/20 flex items-center justify-center">
+                    <Package className="h-6 w-6 text-amber-700 dark:text-amber-400" />
+                  </div>,
+                  "border-l-amber-500"
+                )}
+                <CardContent className="flex-1 overflow-y-auto space-y-3">
+                  {productsInventory && productsInventory.totalProducts > 0 ? (
+                    <>
+                      <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+                        <span className="text-muted-foreground">
+                          <span className="font-semibold text-foreground">
+                            {productsInventory.totalProducts}
+                          </span>{" "}
+                          {productsInventory.totalProducts === 1
+                            ? "produto ativo"
+                            : "produtos ativos"}
+                        </span>
+                        <span className="text-muted-foreground">
+                          Total disponível:{" "}
+                          <span className="font-semibold text-foreground">
+                            {productsInventory.totalAvailableUnits}
+                          </span>{" "}
+                          un.
+                        </span>
+                      </div>
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Item</TableHead>
+                            <TableHead className="hidden sm:table-cell">Categoria</TableHead>
+                            <TableHead className="text-right w-[100px]">Disponível</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {productsInventory.items.map((row) => (
+                            <TableRow key={row.id}>
+                              <TableCell className="font-medium max-w-[280px]">
+                                <div className="truncate" title={row.name}>
+                                  {row.name}
+                                </div>
+                                {row.stockSource === "variants" && row.variants
+                                  ? renderVariantBreakdown(row.variants)
+                                  : null}
+                              </TableCell>
+                              <TableCell className="hidden sm:table-cell text-muted-foreground text-sm">
+                                {row.categoryName ?? "—"}
+                              </TableCell>
+                              <TableCell className="text-right tabular-nums">
+                                {row.availableQuantity}
+                                <span className="text-xs text-muted-foreground ml-1">
+                                  {row.stockSource === "variants" ? "(var.)" : ""}
+                                </span>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                      <Button variant="link" className="h-auto p-0" asChild>
+                        <Link to="/admin/produtos">Gerenciar produtos</Link>
+                      </Button>
+                    </>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">
+                      Nenhum produto ativo cadastrado ou não foi possível carregar o estoque.
+                    </p>
                   )}
                 </CardContent>
               </Card>
@@ -910,7 +1071,7 @@ const AdminDashboard = () => {
                         <TableCell className="font-medium">#{order.id}</TableCell>
                         <TableCell>{getStatusBadge(order.status)}</TableCell>
                         <TableCell>
-                          {formatPoints(order.totalPoints).toLocaleString("pt-BR")} pts
+                          {formatPoints(order.totalPoints)} pts
                         </TableCell>
                         <TableCell>{order.itemsCount}</TableCell>
                         <TableCell>{formatDate(order.createdAt)}</TableCell>

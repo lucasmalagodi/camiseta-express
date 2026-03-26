@@ -1,4 +1,5 @@
-import { createContext, useContext, useState, useEffect, ReactNode } from "react";
+import { createContext, useContext, useState, useEffect, useRef, useCallback, ReactNode } from "react";
+import { setOnAdminUnauthorized, setOnAdminActivity } from "@/services/api";
 
 interface Admin {
   id: number;
@@ -10,13 +11,34 @@ interface Admin {
 
 interface AdminAuthContextType {
   admin: Admin | null;
-  login: (email: string, password: string) => Promise<boolean>;
+  login: (email: string, password: string) => Promise<{ ok: boolean; message?: string }>;
   logout: () => void;
   isAuthenticated: boolean;
   isLoading: boolean;
 }
 
 const AdminAuthContext = createContext<AdminAuthContextType | undefined>(undefined);
+
+// Encerrar sessão após este tempo sem atividade (ex.: 24h = 1 dia)
+const INACTIVITY_TIMEOUT_MS = 24 * 60 * 60 * 1000;
+const ADMIN_LAST_ACTIVITY_KEY = "adminLastActivity";
+
+function getLastActivity(): number | null {
+  const raw = localStorage.getItem(ADMIN_LAST_ACTIVITY_KEY);
+  if (!raw) return null;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : null;
+}
+
+function touchLastActivity(): void {
+  localStorage.setItem(ADMIN_LAST_ACTIVITY_KEY, String(Date.now()));
+}
+
+function isSessionExpired(): boolean {
+  const last = getLastActivity();
+  if (last === null) return false; // sem registro = sessão antiga ou primeira vez, não expirar
+  return Date.now() - last > INACTIVITY_TIMEOUT_MS;
+}
 
 // Helper para obter a URL da API
 const getApiUrl = (): string => {
@@ -41,33 +63,43 @@ export const AdminAuthProvider = ({ children }: { children: ReactNode }) => {
   const [admin, setAdmin] = useState<Admin | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
+  const logout = useCallback(() => {
+    setAdmin(null);
+    localStorage.removeItem("admin");
+    localStorage.removeItem("adminToken");
+    localStorage.removeItem(ADMIN_LAST_ACTIVITY_KEY);
+  }, []);
+
   // Carregar dados do localStorage ao inicializar
   useEffect(() => {
     const storedAdmin = localStorage.getItem("admin");
     const storedToken = localStorage.getItem("adminToken");
-    
+
     if (storedAdmin && storedToken) {
+      if (isSessionExpired()) {
+        logout();
+        setIsLoading(false);
+        return;
+      }
       try {
         const adminData = JSON.parse(storedAdmin);
-        // Verificar se o token ainda é válido fazendo uma requisição
         verifyToken(storedToken).then((isValid) => {
           if (isValid) {
+            touchLastActivity();
             setAdmin({ ...adminData, token: storedToken });
           } else {
-            localStorage.removeItem("admin");
-            localStorage.removeItem("adminToken");
+            logout();
           }
           setIsLoading(false);
         });
       } catch (error) {
-        localStorage.removeItem("admin");
-        localStorage.removeItem("adminToken");
+        logout();
         setIsLoading(false);
       }
     } else {
       setIsLoading(false);
     }
-  }, []);
+  }, [logout]);
 
   const verifyToken = async (token: string): Promise<boolean> => {
     try {
@@ -91,37 +123,31 @@ export const AdminAuthProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
-  const login = async (email: string, password: string): Promise<boolean> => {
+  const login = async (email: string, password: string): Promise<{ ok: boolean; message?: string }> => {
     try {
       setIsLoading(true);
       const response = await fetch(`${API_URL}/auth/login`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password }),
       });
 
       const data = await response.json();
 
       if (!response.ok) {
-        console.error("Erro no login:", data.message || "Erro desconhecido");
+        const message = data?.message || "Credenciais inválidas.";
         setIsLoading(false);
-        return false;
+        return { ok: false, message };
       }
 
-      // Verificar se o usuário é admin
       if (data.role !== "admin") {
-        console.error("Usuário não é admin:", data.role);
         setIsLoading(false);
-        return false;
+        return { ok: false, message: "Acesso restrito a administradores." };
       }
 
-      // Verificar se o token foi retornado
       if (!data.token) {
-        console.error("Token não retornado na resposta");
         setIsLoading(false);
-        return false;
+        return { ok: false, message: "Erro ao gerar sessão. Tente novamente." };
       }
 
       const adminData: Admin = {
@@ -135,20 +161,75 @@ export const AdminAuthProvider = ({ children }: { children: ReactNode }) => {
       setAdmin(adminData);
       localStorage.setItem("admin", JSON.stringify(adminData));
       localStorage.setItem("adminToken", data.token);
+      touchLastActivity();
       setIsLoading(false);
-      return true;
+      return { ok: true };
     } catch (error) {
       console.error("Erro ao fazer login:", error);
       setIsLoading(false);
-      return false;
+      return { ok: false, message: "Erro de conexão. Tente novamente." };
     }
   };
 
-  const logout = () => {
-    setAdmin(null);
-    localStorage.removeItem("admin");
-    localStorage.removeItem("adminToken");
-  };
+  // Quando qualquer chamada admin receber 401, fazer logout
+  useEffect(() => {
+    setOnAdminUnauthorized(() => logout);
+    return () => setOnAdminUnauthorized(null);
+  }, [logout]);
+
+  // Atualizar última atividade quando a API admin for usada (api.ts chama isso)
+  useEffect(() => {
+    setOnAdminActivity(touchLastActivity);
+    return () => setOnAdminActivity(null);
+  }, []);
+
+  // Encerrar sessão por inatividade: checar ao focar a janela e a cada minuto
+  useEffect(() => {
+    if (!admin) return;
+
+    const checkAndLogout = () => {
+      if (isSessionExpired()) {
+        logout();
+      }
+    };
+
+    const onFocus = () => {
+      // Ao voltar à aba, só verificar se passou do tempo (não atualizar atividade)
+      checkAndLogout();
+    };
+
+    const intervalId = setInterval(checkAndLogout, 60 * 1000); // a cada 1 min
+    window.addEventListener("focus", onFocus);
+
+    return () => {
+      clearInterval(intervalId);
+      window.removeEventListener("focus", onFocus);
+    };
+  }, [admin, logout]);
+
+  // Atualizar última atividade com interação do usuário (mouse/teclado) no admin
+  const lastTouchRef = useRef(0);
+  useEffect(() => {
+    if (!admin) return;
+
+    const debounceMs = 60 * 1000; // no máximo a cada 1 min
+    const onActivity = () => {
+      const now = Date.now();
+      if (now - lastTouchRef.current < debounceMs) return;
+      lastTouchRef.current = now;
+      touchLastActivity();
+    };
+
+    window.addEventListener("mousemove", onActivity);
+    window.addEventListener("keydown", onActivity);
+    window.addEventListener("click", onActivity);
+
+    return () => {
+      window.removeEventListener("mousemove", onActivity);
+      window.removeEventListener("keydown", onActivity);
+      window.removeEventListener("click", onActivity);
+    };
+  }, [admin]);
 
   return (
     <AdminAuthContext.Provider

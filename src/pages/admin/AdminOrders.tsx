@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -12,48 +12,93 @@ import {
 } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Search, Eye, Package } from "lucide-react";
-import { orderService } from "@/services/api";
+import {
+  shipmentService,
+  ShipmentStatus,
+} from "@/services/api";
 import { toast } from "sonner";
 import { formatPoints } from "@/lib/utils";
 import { useTableSort } from "@/hooks/useTableSort";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
-interface Order {
+type AdminOrderRow = {
   id: number;
   agencyId: number;
+  agencyName?: string;
   totalPoints: number;
-  status: "PENDING" | "CONFIRMED" | "CANCELED";
   createdAt: string;
-  updatedAt: string;
-}
+  productsSummary?: string;
+  shipmentStatus?: ShipmentStatus;
+};
+
+const shipmentStatusLabel: Record<ShipmentStatus, string> = {
+  PENDING: "Pendente",
+  READY_TO_POST: "Pronto para postar",
+  POSTED: "Postado",
+  DELIVERED: "Entregue",
+  CANCELED: "Cancelado",
+};
+
+const shipmentStatusVariant = (s: ShipmentStatus) => {
+  switch (s) {
+    case "DELIVERED":
+      return "default" as const;
+    case "POSTED":
+      return "secondary" as const;
+    case "CANCELED":
+      return "destructive" as const;
+    case "READY_TO_POST":
+      return "outline" as const;
+    default:
+      return "secondary" as const;
+  }
+};
 
 const AdminOrders = () => {
   const navigate = useNavigate();
-  const [orders, setOrders] = useState<Order[]>([]);
-  const [filteredOrders, setFilteredOrders] = useState<Order[]>([]);
+  const [orders, setOrders] = useState<AdminOrderRow[]>([]);
+  const [filteredOrders, setFilteredOrders] = useState<AdminOrderRow[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
+  const [viewMode, setViewMode] = useState<"unprocessed" | "processed">("unprocessed");
+  const [processedStatus, setProcessedStatus] = useState<string>("all");
   
   const { sortedData, handleSort, getSortIcon } = useTableSort(filteredOrders);
 
-  const loadOrders = async () => {
+  const loadOrders = useCallback(async () => {
     try {
       setIsLoading(true);
-      const data = await orderService.getAll();
-      setOrders(data);
-      setFilteredOrders(data);
+      if (viewMode === "unprocessed") {
+        const data = await shipmentService.listPendingOrders();
+        setOrders(data as AdminOrderRow[]);
+        setFilteredOrders(data as AdminOrderRow[]);
+      } else {
+        const data = await shipmentService.listProcessedOrders({
+          status: processedStatus === "all" ? undefined : (processedStatus as ShipmentStatus),
+        });
+        setOrders(data as AdminOrderRow[]);
+        setFilteredOrders(data as AdminOrderRow[]);
+      }
     } catch (error) {
       toast.error("Erro ao carregar pedidos");
       console.error(error);
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [processedStatus, viewMode]);
 
   useEffect(() => {
     loadOrders();
-  }, []);
+  }, [loadOrders]);
 
   useEffect(() => {
     if (!searchTerm.trim()) {
@@ -62,25 +107,34 @@ const AdminOrders = () => {
     }
 
     const term = searchTerm.toLowerCase();
-    const filtered = orders.filter(
-      (order) =>
+    const filtered = orders.filter((order) => {
+      const agencyName = order.agencyName?.toLowerCase() || "";
+      return (
         order.id.toString().includes(term) ||
-        order.agencyId.toString().includes(term)
-    );
+        order.agencyId.toString().includes(term) ||
+        agencyName.includes(term) ||
+        (order.productsSummary && order.productsSummary.toLowerCase().includes(term)) ||
+        (order.shipmentStatus && order.shipmentStatus.toLowerCase().includes(term))
+      );
+    });
     setFilteredOrders(filtered);
   }, [searchTerm, orders]);
 
-  const getStatusBadge = (status: string) => {
-    switch (status) {
-      case "CONFIRMED":
-        return <Badge className="bg-green-500">Confirmado</Badge>;
-      case "PENDING":
-        return <Badge className="bg-yellow-500">Pendente</Badge>;
-      case "CANCELED":
-        return <Badge variant="destructive">Cancelado</Badge>;
-      default:
-        return <Badge>{status}</Badge>;
+  const getShipmentStatusBadge = (row: AdminOrderRow) => {
+    if (viewMode === "unprocessed") {
+      return <Badge variant="outline">Não processado</Badge>;
     }
+
+    return (
+      <div className="flex flex-col gap-1">
+        <Badge variant="secondary">Enviado</Badge>
+        {row.shipmentStatus && (
+          <span className="text-xs text-muted-foreground">
+            Remessa: {shipmentStatusLabel[row.shipmentStatus]}
+          </span>
+        )}
+      </div>
+    );
   };
 
   const formatDate = (dateString: string) => {
@@ -100,7 +154,7 @@ const AdminOrders = () => {
         <div>
           <h1 className="text-3xl font-bold">Pedidos</h1>
           <p className="text-muted-foreground mt-1">
-            Visualize e monitore todos os pedidos realizados
+            Visualize pedidos não processados e, quando necessário, filtre os processados por status do envio.
           </p>
         </div>
       </div>
@@ -108,14 +162,52 @@ const AdminOrders = () => {
       {/* Search */}
       <Card>
         <CardContent className="pt-6">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground w-4 h-4" />
-            <Input
-              placeholder="Buscar por ID do pedido ou ID da agência..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-10"
-            />
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+            <div className="space-y-2 min-w-[200px]">
+              <Label>Exibir</Label>
+              <Select value={viewMode} onValueChange={(v) => setViewMode(v as any)}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="unprocessed">Não processados</SelectItem>
+                  <SelectItem value="processed">Processados</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {viewMode === "processed" && (
+              <div className="space-y-2 min-w-[220px]">
+                <Label>Status do envio</Label>
+                <Select value={processedStatus} onValueChange={setProcessedStatus}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Todos" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Todos</SelectItem>
+                    {(Object.keys(shipmentStatusLabel) as ShipmentStatus[]).map((s) => (
+                      <SelectItem key={s} value={s}>
+                        {shipmentStatusLabel[s]}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground w-4 h-4" />
+              <Input
+                placeholder={
+                  viewMode === "processed"
+                    ? "Buscar por ID, agência, status do envio ou produto..."
+                    : "Buscar por ID, agência ou produto..."
+                }
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="pl-10"
+              />
+            </div>
           </div>
         </CardContent>
       </Card>
@@ -155,9 +247,9 @@ const AdminOrders = () => {
                     </TableHead>
                     <TableHead 
                       className="cursor-pointer hover:bg-muted/50 select-none"
-                      onClick={() => handleSort("agencyId")}
+                      onClick={() => handleSort("agencyName")}
                     >
-                      Agência ID{getSortIcon("agencyId")}
+                      Agência{getSortIcon("agencyName")}
                     </TableHead>
                     <TableHead 
                       className="cursor-pointer hover:bg-muted/50 select-none"
@@ -165,11 +257,12 @@ const AdminOrders = () => {
                     >
                       Total (pts){getSortIcon("totalPoints")}
                     </TableHead>
+                    <TableHead>Produtos</TableHead>
                     <TableHead 
                       className="cursor-pointer hover:bg-muted/50 select-none"
-                      onClick={() => handleSort("status")}
+                      onClick={() => handleSort("shipmentStatus")}
                     >
-                      Status{getSortIcon("status")}
+                      Status do envio{getSortIcon("shipmentStatus")}
                     </TableHead>
                     <TableHead 
                       className="cursor-pointer hover:bg-muted/50 select-none"
@@ -184,11 +277,23 @@ const AdminOrders = () => {
                   {sortedData.map((order) => (
                     <TableRow key={order.id}>
                       <TableCell className="font-medium">#{order.id}</TableCell>
-                      <TableCell>{order.agencyId}</TableCell>
+                      <TableCell>
+                        <div className="flex flex-col">
+                          <span className="font-medium">
+                            {order.agencyName || `Agência ${order.agencyId}`}
+                          </span>
+                          <span className="text-xs text-muted-foreground">
+                            ID: {order.agencyId}
+                          </span>
+                        </div>
+                      </TableCell>
                       <TableCell className="font-semibold text-primary">
                         {formatPoints(order.totalPoints)} pts
                       </TableCell>
-                      <TableCell>{getStatusBadge(order.status)}</TableCell>
+                      <TableCell className="max-w-[280px] text-sm text-muted-foreground">
+                        {order.productsSummary || "—"}
+                      </TableCell>
+                      <TableCell>{getShipmentStatusBadge(order)}</TableCell>
                       <TableCell className="text-sm text-muted-foreground">
                         {formatDate(order.createdAt)}
                       </TableCell>

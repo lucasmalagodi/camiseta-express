@@ -12,7 +12,7 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Plus, Pencil, Trash2, Eye, BarChart3 } from "lucide-react";
+import { Plus, Pencil, Trash2, Eye, BarChart3, TrendingUp } from "lucide-react";
 import { reportService } from "@/services/api";
 import { toast } from "sonner";
 import {
@@ -123,17 +123,26 @@ const AdminReports = () => {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h2 className="text-3xl font-bold">Relatórios</h2>
           <p className="text-muted-foreground mt-1">
             Crie e gerencie relatórios dinâmicos do sistema
           </p>
         </div>
-        <Button onClick={() => navigate("/admin/relatorios/novo")}>
-          <Plus className="h-4 w-4 mr-2" />
-          Novo Relatório
-        </Button>
+        <div className="flex flex-wrap gap-2 shrink-0">
+          <Button
+            variant="outline"
+            onClick={() => navigate("/admin/relatorios/novo?preset=top-products")}
+          >
+            <TrendingUp className="h-4 w-4 mr-2" />
+            Modelo: mais vendidos
+          </Button>
+          <Button onClick={() => navigate("/admin/relatorios/novo")}>
+            <Plus className="h-4 w-4 mr-2" />
+            Novo Relatório
+          </Button>
+        </div>
       </div>
 
       <Card>
@@ -150,10 +159,19 @@ const AdminReports = () => {
               <p className="text-muted-foreground mb-4">
                 Nenhum relatório criado ainda
               </p>
-              <Button onClick={() => navigate("/admin/relatorios/novo")}>
-                <Plus className="h-4 w-4 mr-2" />
-                Criar Primeiro Relatório
-              </Button>
+              <div className="flex flex-wrap gap-2 justify-center">
+                <Button
+                  variant="outline"
+                  onClick={() => navigate("/admin/relatorios/novo?preset=top-products")}
+                >
+                  <TrendingUp className="h-4 w-4 mr-2" />
+                  Modelo: mais vendidos
+                </Button>
+                <Button onClick={() => navigate("/admin/relatorios/novo")}>
+                  <Plus className="h-4 w-4 mr-2" />
+                  Criar Primeiro Relatório
+                </Button>
+              </div>
             </div>
           ) : (
             <Table>

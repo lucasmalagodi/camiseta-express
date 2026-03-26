@@ -3,10 +3,11 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = require("express");
 const authController_1 = require("../controllers/authController");
 const authMiddleware_1 = require("../middlewares/authMiddleware");
+const rateLimitMiddleware_1 = require("../middlewares/rateLimitMiddleware");
 const passwordResetController_1 = require("../controllers/passwordResetController");
 const router = (0, express_1.Router)();
 router.post('/register', authController_1.register);
-router.post('/login', authController_1.login);
+router.post('/login', rateLimitMiddleware_1.loginLimiter, authController_1.login);
 router.get('/me', authMiddleware_1.protect, authController_1.getMe);
 // Password recovery routes
 router.post('/forgot-password', passwordResetController_1.passwordResetController.forgotPassword);

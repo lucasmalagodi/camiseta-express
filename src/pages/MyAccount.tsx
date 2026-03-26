@@ -396,7 +396,7 @@ const MyAccount = () => {
                           <TableCell>{getStatusBadge(order.status)}</TableCell>
                           <TableCell>{order.itemsCount}</TableCell>
                           <TableCell className="text-right font-semibold">
-                            {formatPoints(order.totalPoints).toLocaleString("pt-BR")} pts
+                            {formatPoints(order.totalPoints)} pts
                           </TableCell>
                           <TableCell className="text-right">
                             <Button

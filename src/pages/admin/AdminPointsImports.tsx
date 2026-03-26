@@ -11,7 +11,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Upload, Eye, FileSpreadsheet, Trash2, FileText, Search, X } from "lucide-react";
+import { Upload, Eye, FileSpreadsheet, Trash2, FileText, Search, X, RefreshCcw } from "lucide-react";
 import { agencyPointsImportService } from "@/services/api";
 import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
@@ -62,6 +62,7 @@ const AdminPointsImports = () => {
   const [allLogs, setAllLogs] = useState<any[]>([]); // Armazena todos os logs
   const [isLoadingLogs, setIsLoadingLogs] = useState(false);
   const [searchKeyword, setSearchKeyword] = useState<string>('');
+  const [resyncingId, setResyncingId] = useState<number | null>(null);
   
   const { sortedData, handleSort, getSortIcon } = useTableSort(imports);
 
@@ -226,6 +227,24 @@ const AdminPointsImports = () => {
       toast.error(error instanceof Error ? error.message : "Erro ao excluir importação");
     } finally {
       setDeletingId(null);
+    }
+  };
+
+  const handleResync = async (importId: number) => {
+    if (!confirm("Essa ação irá re-sincronizar os pontos desta importação com as agências ativas, sem afetar compras já realizadas. Deseja continuar?")) {
+      return;
+    }
+
+    try {
+      setResyncingId(importId);
+      const result = await agencyPointsImportService.resync(importId);
+      toast.success(`Re-sincronização concluída. Agências atualizadas: ${result.syncedAgencies || 0}.`);
+      await loadImports();
+    } catch (error: any) {
+      console.error(error);
+      toast.error(error.message || "Erro ao re-sincronizar importação");
+    } finally {
+      setResyncingId(null);
     }
   };
 
@@ -486,6 +505,15 @@ const AdminPointsImports = () => {
                         >
                           <FileText className="w-4 h-4 mr-2" />
                           Logs
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleResync(importItem.id)}
+                          disabled={resyncingId === importItem.id || importItem.status === 'PROCESSING'}
+                        >
+                          <RefreshCcw className="w-4 h-4 mr-2" />
+                          {resyncingId === importItem.id ? "Sincronizando..." : "Re-sincronizar"}
                         </Button>
                         <Button
                           variant="ghost"

@@ -168,7 +168,7 @@ const OrderDetail = () => {
             <div>
               <span className="text-sm text-muted-foreground">Total:</span>
               <p className="font-bold text-primary text-lg">
-                {formatPoints(order.totalPoints).toLocaleString("pt-BR")} pts
+                {formatPoints(order.totalPoints)} pts
               </p>
             </div>
             <div>
@@ -215,10 +215,10 @@ const OrderDetail = () => {
                     <TableCell>{item.size || "-"}</TableCell>
                     <TableCell className="text-center">{item.quantity}</TableCell>
                     <TableCell className="text-right">
-                      {formatPoints(item.pointsPerUnit).toLocaleString("pt-BR")} pts
+                      {formatPoints(item.pointsPerUnit)} pts
                     </TableCell>
                     <TableCell className="text-right font-semibold">
-                      {formatPoints(item.pointsPerUnit * item.quantity).toLocaleString("pt-BR")} pts
+                      {formatPoints(item.pointsPerUnit * item.quantity)} pts
                     </TableCell>
                   </TableRow>
                 ))}
@@ -227,7 +227,7 @@ const OrderDetail = () => {
                     Total:
                   </TableCell>
                   <TableCell className="text-right font-bold text-lg">
-                    {formatPoints(order.totalPoints).toLocaleString("pt-BR")} pts
+                    {formatPoints(order.totalPoints)} pts
                   </TableCell>
                 </TableRow>
               </TableBody>

@@ -5,18 +5,23 @@ import { agencyService } from '../services/agencyService';
 
 const createOrderItemSchema = z.object({
     productId: z.number().int().positive(),
-    quantity: z.number().int().positive()
+    quantity: z.number().int().positive(),
+    variantId: z.number().int().positive().optional() // modelo + tamanho (camisa)
 });
 
 const createOrderSchema = z.object({
     items: z.array(createOrderItemSchema).min(1)
 });
 
+const updateOrderItemVariantSchema = z.object({
+    productVariantId: z.number().int().positive()
+});
+
 export const orderController = {
     async create(req: Request, res: Response) {
         try {
-            const agencyId = parseInt(req.params.agencyId as string);
-            if (isNaN(agencyId)) {
+            const agencyId = parseInt(req.params.agencyId as string, 10);
+            if (Number.isNaN(agencyId) || agencyId < 1) {
                 return res.status(400).json({ message: 'Invalid agency ID' });
             }
 
@@ -72,7 +77,12 @@ export const orderController = {
             }
 
             const items = await orderService.findItemsByOrderId(id);
-            res.json({ ...order, items });
+            const payload: any = { ...order, items };
+            if (order.status === 'CANCELED') {
+                const cancellation = await orderService.getCancellationByOrderId(id);
+                if (cancellation) payload.cancellation = cancellation;
+            }
+            res.json(payload);
         } catch (error) {
             console.error(error);
             res.status(500).json({ message: 'Internal server error' });
@@ -81,8 +91,8 @@ export const orderController = {
 
     async getByAgencyId(req: Request, res: Response) {
         try {
-            const agencyId = parseInt(req.params.agencyId as string);
-            if (isNaN(agencyId)) {
+            const agencyId = parseInt(req.params.agencyId as string, 10);
+            if (Number.isNaN(agencyId) || agencyId < 1) {
                 return res.status(400).json({ message: 'Invalid agency ID' });
             }
 
@@ -96,10 +106,9 @@ export const orderController = {
 
     async getProductPurchaseCount(req: Request, res: Response) {
         try {
-            const agencyId = parseInt(req.params.agencyId as string);
-            const productId = parseInt(req.params.productId as string);
-            
-            if (isNaN(agencyId) || isNaN(productId)) {
+            const agencyId = parseInt(req.params.agencyId as string, 10);
+            const productId = parseInt(req.params.productId as string, 10);
+            if (Number.isNaN(agencyId) || agencyId < 1 || Number.isNaN(productId) || productId < 1) {
                 return res.status(400).json({ message: 'Invalid agency ID or product ID' });
             }
 
@@ -141,15 +150,48 @@ export const orderController = {
                 return res.status(400).json({ message: 'Invalid ID' });
             }
 
-            await orderService.cancel(id);
-            res.json({ success: true, id });
+            const body = req.body || {};
+            const reason = typeof body.reason === 'string' ? body.reason.trim() : '';
+            if (!reason) {
+                return res.status(400).json({ message: 'O motivo do cancelamento é obrigatório.' });
+            }
+
+            const cancellation = await orderService.cancelWithReason(id, {
+                reason,
+                sendEmail: Boolean(body.sendEmail),
+                emailMessage: typeof body.emailMessage === 'string' ? body.emailMessage.trim() : undefined
+            });
+            res.json({ success: true, id, cancellation });
         } catch (error) {
             if (error instanceof Error) {
-                if (error.message.includes('not found') || error.message.includes('Only PENDING')) {
+                if (error.message.includes('not found') || error.message.includes('Only CONFIRMED')) {
                     return res.status(400).json({ message: error.message });
                 }
             }
             console.error(error);
+            res.status(500).json({ message: 'Internal server error' });
+        }
+    },
+
+    async updateOrderItemVariant(req: Request, res: Response) {
+        try {
+            const orderId = parseInt(req.params.orderId as string, 10);
+            const itemId = parseInt(req.params.itemId as string, 10);
+            if (Number.isNaN(orderId) || orderId < 1 || Number.isNaN(itemId) || itemId < 1) {
+                return res.status(400).json({ message: 'IDs inválidos' });
+            }
+
+            const body = updateOrderItemVariantSchema.parse(req.body);
+            const result = await orderService.updateOrderItemVariant(orderId, itemId, body.productVariantId);
+            res.json({ success: true, ...result });
+        } catch (error) {
+            if (error instanceof z.ZodError) {
+                return res.status(400).json({ message: 'Dados inválidos', errors: error.issues });
+            }
+            if (error instanceof Error) {
+                return res.status(400).json({ message: error.message });
+            }
+            console.error('updateOrderItemVariant:', error);
             res.status(500).json({ message: 'Internal server error' });
         }
     },

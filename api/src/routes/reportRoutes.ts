@@ -1,20 +1,10 @@
 import { Router } from 'express';
 import { reportController, dashboardWidgetController } from '../controllers/reportController';
-import { protect } from '../middlewares/authMiddleware';
+import { protectAdmin } from '../middlewares/authMiddleware';
 
 const router = Router();
 
-// Middleware para verificar se é admin
-const requireAdmin = (req: any, res: any, next: any) => {
-    if (!req.user || req.user.role !== 'admin') {
-        return res.status(403).json({ message: 'Acesso negado. Apenas administradores.' });
-    }
-    next();
-};
-
-// Todas as rotas requerem autenticação e admin
-router.use(protect);
-router.use(requireAdmin);
+router.use(protectAdmin);
 
 // Rotas de relatórios
 // IMPORTANTE: Rotas específicas devem vir ANTES de rotas com parâmetros

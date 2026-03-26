@@ -46,6 +46,7 @@ const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
 const deviceVerificationService_1 = require("../services/deviceVerificationService");
 const emailService_1 = require("../services/emailService");
 const legalDocumentService_1 = require("../services/legalDocumentService");
+const authMiddleware_1 = require("../middlewares/authMiddleware");
 const addressSchema = zod_1.z.object({
     cep: zod_1.z.string().min(1),
     street: zod_1.z.string().min(1),
@@ -363,8 +364,10 @@ exports.agencyController = {
                 }
                 catch (emailError) {
                     console.error('Error sending verification code email:', emailError);
+                    if (emailError instanceof Error && emailError.stack)
+                        console.error(emailError.stack);
                     return res.status(500).json({
-                        message: 'Erro ao enviar código de verificação. Tente novamente mais tarde.'
+                        message: 'Erro interno. Entre em contato com o suporte.'
                     });
                 }
                 return res.status(200).json({
@@ -381,7 +384,6 @@ exports.agencyController = {
                 return res.status(404).json({ message: 'Agência não encontrada' });
             }
             // Gerar token JWT
-            const jwtSecret = process.env.JWT_SECRET || 'secret';
             const jwtExpire = process.env.JWT_EXPIRE || '30d';
             // @ts-ignore - expiresIn aceita string mas o tipo está muito restritivo
             const signOptions = { expiresIn: jwtExpire };
@@ -390,7 +392,7 @@ exports.agencyController = {
                 email: fullAgency.email,
                 role: 'agency',
                 agencyId: fullAgency.id
-            }, jwtSecret, signOptions);
+            }, (0, authMiddleware_1.getJwtSecret)(), signOptions);
             res.status(200).json({
                 id: fullAgency.id,
                 name: fullAgency.name,
@@ -405,6 +407,8 @@ exports.agencyController = {
                 return res.status(400).json({ message: 'Dados inválidos', errors: error.issues });
             }
             console.error('Erro no login de agência:', error);
+            if (error instanceof Error && error.stack)
+                console.error(error.stack);
             res.status(500).json({ message: 'Erro no servidor' });
         }
     },
@@ -449,7 +453,6 @@ exports.agencyController = {
                 return res.status(404).json({ message: 'Agência não encontrada' });
             }
             // Gerar token JWT
-            const jwtSecret = process.env.JWT_SECRET || 'secret';
             const jwtExpire = process.env.JWT_EXPIRE || '30d';
             // @ts-ignore - expiresIn aceita string mas o tipo está muito restritivo
             const signOptions = { expiresIn: jwtExpire };
@@ -458,7 +461,7 @@ exports.agencyController = {
                 email: fullAgency.email,
                 role: 'agency',
                 agencyId: fullAgency.id
-            }, jwtSecret, signOptions);
+            }, (0, authMiddleware_1.getJwtSecret)(), signOptions);
             // Configurar cookie HttpOnly, Secure, SameSite=Strict
             const isProduction = process.env.NODE_ENV === 'production';
             res.cookie('device_token', deviceToken, {
